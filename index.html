@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pattaya Leaderboards</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow+Condensed:wght@400;600;700&family=Barlow:wght@400;500&display=swap" rel="stylesheet">
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendEmailVerification, updateProfile } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getFirestore, doc, setDoc, getDoc, collection, query, where, getDocs, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  // ─────────────────────────────────────────────
+  // FIREBASE CONFIG — Replace with your own config
+  // from Firebase Console > Project Settings > Your Apps
+  // ─────────────────────────────────────────────
+  const firebaseConfig = {
+    apiKey: "REPLACE_WITH_YOUR_API_KEY",
+    authDomain: "REPLACE_WITH_YOUR_AUTH_DOMAIN",
+    projectId: "REPLACE_WITH_YOUR_PROJECT_ID",
+    storageBucket: "REPLACE_WITH_YOUR_STORAGE_BUCKET",
+    messagingSenderId: "REPLACE_WITH_YOUR_MESSAGING_SENDER_ID",
+    appId: "REPLACE_WITH_YOUR_APP_ID"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  // ─────────────────────────────────────────────
+  // AUTH STATE LISTENER
+  // Fires whenever user logs in, logs out, or page loads
+  // ─────────────────────────────────────────────
+  onAuthStateChanged(auth, async (firebaseUser) => {
+    if (firebaseUser) {
+      if (!firebaseUser.emailVerified) {
+        // User is logged in but hasn't verified email yet
+        state.user = {
+          uid: firebaseUser.uid,
+          email: firebaseUser.email,
+          username: firebaseUser.displayName || firebaseUser.email.split('@')[0],
+          verified: false
+        };
+        updateHeader();
+        renderGrid();
+        showVerifyBanner();
+      } else {
+        // Fully authenticated and verified
+        state.user = {
+          uid: firebaseUser.uid,
+          email: firebaseUser.email,
+          username: firebaseUser.displayName || firebaseUser.email.split('@')[0],
+          verified: true
+        };
+        hideVerifyBanner();
+        // Load this user's weekly submission status from Firestore
+        await loadWeeklyStatus();
+        updateHeader();
+        closeModal();
+        renderGrid();
+      }
+    } else {
+      // Logged out
+      state.user = null;
+      state.weeklyDone = {};
+      updateHeader();
+      renderGrid();
+      hideVerifyBanner();
+    }
+  });
+
+  // ─────────────────────────────────────────────
+  // LOAD WEEKLY STATUS FROM FIRESTORE
+  // Checks if this user has already submitted each criteria this week
+  // ─────────────────────────────────────────────
+  async function loadWeeklyStatus() {
+    if (!state.user || !state.user.verified) return;
+    const weekId = getCurrentWeekId();
+    state.weeklyDone = {};
+    const ref = doc(db, 'weekly_submissions', `${state.user.uid}_${weekId}`);
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+      const data = snap.data();
+      CRITERIA.forEach(c => {
+        if (data[c.id]) state.weeklyDone[c.id] = true;
+      });
+    }
+  }
+
+  // ─────────────────────────────────────────────
+  // SAVE VOTE SUBMISSION TO FIRESTORE
+  // Called when user completes rating all clubs for a criteria
+  // ─────────────────────────────────────────────
+  window.saveSubmissionToFirestore = async function(criteriaId, rankings) {
+    if (!state.user || !state.user.verified) return;
+    const weekId = getCurrentWeekId();
+    const submissionRef = doc(db, 'weekly_submissions', `${state.user.uid}_${weekId}`);
+
+    // Mark this criteria as done for this week
+    await setDoc(submissionRef, {
+      [criteriaId]: true,
+      userId: state.user.uid,
+      weekId: weekId,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+
+    // Save the actual vote data
+    const votesRef = doc(db, 'votes', `${state.user.uid}_${criteriaId}_${weekId}`);
+    await setDoc(votesRef, {
+      userId: state.user.uid,
+      criteriaId: criteriaId,
+      weekId: weekId,
+      rankings: rankings,
+      submittedAt: serverTimestamp()
+    });
+
+    // Update aggregate scores in Firestore
+    await updateAggregateScores(criteriaId, rankings, weekId);
+  };
+
+  // ─────────────────────────────────────────────
+  // UPDATE AGGREGATE SCORES
+  // Stores per-club scores for leaderboard display
+  // ─────────────────────────────────────────────
+  async function updateAggregateScores(criteriaId, rankings, weekId) {
+    const SCORES_MAP = {S:100, A:80, B:60, C:40, D:20, F:0};
+    for (const [clubId, tier] of Object.entries(rankings)) {
+      if (tier === 'SKIP') continue;
+      const scoreVal = SCORES_MAP[tier];
+      const scoreRef = doc(db, 'scores', `${clubId}_${criteriaId}_${weekId}`);
+      const existing = await getDoc(scoreRef);
+      if (existing.exists()) {
+        const d = existing.data();
+        const newTotal = d.totalScore + scoreVal;
+        const newVotes = d.voteCount + 1;
+        await setDoc(scoreRef, { totalScore: newTotal, voteCount: newVotes, avgScore: Math.round(newTotal/newVotes), clubId: Number(clubId), criteriaId, weekId }, { merge: true });
+      } else {
+        await setDoc(scoreRef, { totalScore: scoreVal, voteCount: 1, avgScore: scoreVal, clubId: Number(clubId), criteriaId, weekId });
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────
+  // LOAD LEADERBOARD DATA FROM FIRESTORE
+  // ─────────────────────────────────────────────
+  window.loadLeaderboardData = async function(criteriaId, timeframe) {
+    const weekId = getCurrentWeekId();
+    let q;
+    if (timeframe === 'weekly') {
+      q = query(collection(db, 'scores'), where('criteriaId', '==', criteriaId), where('weekId', '==', weekId));
+    } else {
+      // For monthly / alltime: load all records for this criteria and aggregate
+      q = query(collection(db, 'scores'), where('criteriaId', '==', criteriaId));
+    }
+    const snap = await getDocs(q);
+    const clubMap = {};
+    snap.forEach(d => {
+      const data = d.data();
+      const cid = data.clubId;
+      if (!clubMap[cid]) clubMap[cid] = { totalScore: 0, voteCount: 0 };
+      clubMap[cid].totalScore += data.totalScore;
+      clubMap[cid].voteCount += data.voteCount;
+    });
+    // Convert to array for rendering
+    return Object.entries(clubMap).map(([clubId, agg]) => ({
+      clubId: Number(clubId),
+      avgScore: Math.round(agg.totalScore / agg.voteCount),
+      voteCount: agg.voteCount
+    }));
+  };
+
+  // ─────────────────────────────────────────────
+  // FIREBASE AUTH ACTIONS (exposed to global scope)
+  // ─────────────────────────────────────────────
+  window.firebaseRegister = async function(username, email, password) {
+    try {
+      showAuthLoading(true);
+      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      // Save username to profile
+      await updateProfile(cred.user, { displayName: username });
+      // Save user record to Firestore
+      await setDoc(doc(db, 'users', cred.user.uid), {
+        username: username,
+        email: email,
+        createdAt: serverTimestamp()
+      });
+      // Send verification email
+      await sendEmailVerification(cred.user);
+      showAuthLoading(false);
+      // Show the verify email notice inside the modal
+      showVerifyEmailModal(email);
+    } catch(err) {
+      showAuthLoading(false);
+      showAuthError(getAuthErrorMessage(err.code));
+    }
+  };
+
+  window.firebaseLogin = async function(email, password) {
+    try {
+      showAuthLoading(true);
+      await signInWithEmailAndPassword(auth, email, password);
+      // onAuthStateChanged will handle the rest
+      showAuthLoading(false);
+    } catch(err) {
+      showAuthLoading(false);
+      showAuthError(getAuthErrorMessage(err.code));
+    }
+  };
+
+  window.firebaseLogout = async function() {
+    await signOut(auth);
+  };
+
+  window.firebaseResendVerification = async function() {
+    const user = auth.currentUser;
+    if (user && !user.emailVerified) {
+      await sendEmailVerification(user);
+      showToastMsg('Verification email resent!');
+    }
+  };
+
+  window.firebaseRefreshVerification = async function() {
+    const user = auth.currentUser;
+    if (user) {
+      await user.reload();
+      if (user.emailVerified) {
+        state.user.verified = true;
+        hideVerifyBanner();
+        await loadWeeklyStatus();
+        updateHeader();
+        renderGrid();
+        showToastMsg('Email verified! You can now rate clubs.');
+      } else {
+        showToastMsg("Email not verified yet — check your inbox.");
+      }
+    }
+  };
+
+  // ─────────────────────────────────────────────
+  // HELPERS
+  // ─────────────────────────────────────────────
+  function getCurrentWeekId() {
+    const now = new Date();
+    const day = now.getDay();
+    const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+    const monday = new Date(now.setDate(diff));
+    return `${monday.getFullYear()}-W${String(Math.ceil(monday.getDate()/7)).padStart(2,'0')}-${monday.getMonth()+1}-${monday.getDate()}`;
+  }
+
+  function getAuthErrorMessage(code) {
+    const msgs = {
+      'auth/email-already-in-use': 'This email is already registered.',
+      'auth/invalid-email': 'Please enter a valid email address.',
+      'auth/weak-password': 'Password must be at least 6 characters.',
+      'auth/user-not-found': 'No account found with this email.',
+      'auth/wrong-password': 'Incorrect password.',
+      'auth/invalid-credential': 'Incorrect email or password.',
+      'auth/too-many-requests': 'Too many attempts. Please try again later.',
+      'auth/network-request-failed': 'Network error. Check your connection.',
+    };
+    return msgs[code] || 'Something went wrong. Please try again.';
+  }
+
+  function showAuthLoading(on) {
+    const btns = document.querySelectorAll('.btn-auth-submit');
+    btns.forEach(b => { b.disabled = on; b.textContent = on ? 'Please wait...' : b.dataset.label; });
+  }
+
+  function showAuthError(msg) {
+    // Show error in whichever view is currently visible
+    const loginVisible = document.getElementById('loginView').style.display !== 'none';
+    const elId = loginVisible ? 'authError' : 'authErrorReg';
+    const el = document.getElementById(elId);
+    if (el) { el.textContent = msg; el.style.display = 'block'; }
+  }
+
+  function showVerifyEmailModal(email) {
+    document.getElementById('loginView').style.display = 'none';
+    document.getElementById('registerView').style.display = 'none';
+    document.getElementById('verifyEmailView').style.display = 'block';
+    document.getElementById('verifyEmailAddress').textContent = email;
+  }
+
+  function showVerifyBanner() {
+    document.getElementById('verifyBanner').style.display = 'flex';
+  }
+
+  function hideVerifyBanner() {
+    document.getElementById('verifyBanner').style.display = 'none';
+  }
+
+  function showToastMsg(msg) {
+    const t = document.getElementById('feedbackToast');
+    t.textContent = msg; t.style.color = 'var(--white)';
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2000);
+  }
+</script>
+<style>
+  :root {
+    --black: #0a0a0a;
+    --dark: #111111;
+    --card-bg: #1a1a1a;
+    --border: #2a2a2a;
+    --white: #ffffff;
+    --off-white: #e0e0e0;
+    --grey: #888888;
+    --light-grey: #444444;
+    --gold: #c9a84c;
+    --s: #FFD700;
+    --a: #98FF98;
+    --b: #87CEEB;
+    --c: #FFB347;
+    --d: #FF8C94;
+    --f: #CC5555;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { background:var(--black); color:var(--white); font-family:'Barlow',sans-serif; min-height:100vh; overflow-x:hidden; }
+
+  /* HEADER */
+  .site-header { background:var(--dark); border-bottom:1px solid var(--border); padding:14px 20px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:100; }
+  .logo-area { display:flex; align-items:center; gap:10px; cursor:pointer; }
+  .logo-area img { height:32px; width:auto; }
+  .site-title { font-family:'Bebas Neue',sans-serif; font-size:1.5rem; letter-spacing:2px; }
+  .header-right { display:flex; align-items:center; gap:10px; }
+  .btn-login { background:transparent; border:1px solid var(--border); color:var(--grey); padding:7px 14px; font-family:'Barlow Condensed',sans-serif; font-size:0.8rem; letter-spacing:1px; text-transform:uppercase; cursor:pointer; transition:all 0.2s; border-radius:2px; }
+  .btn-login:hover { border-color:var(--white); color:var(--white); }
+  .btn-primary { background:var(--white); border:none; color:var(--black); padding:7px 14px; font-family:'Barlow Condensed',sans-serif; font-size:0.8rem; font-weight:700; letter-spacing:1px; text-transform:uppercase; cursor:pointer; transition:all 0.2s; border-radius:2px; }
+  .btn-primary:hover { background:var(--off-white); }
+
+  /* NAV */
+  .nav-tabs { display:flex; background:var(--dark); border-bottom:1px solid var(--border); overflow-x:auto; scrollbar-width:none; }
+  .nav-tabs::-webkit-scrollbar { display:none; }
+  .nav-tab { padding:13px 22px; font-family:'Barlow Condensed',sans-serif; font-size:0.85rem; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--grey); cursor:pointer; border-bottom:2px solid transparent; white-space:nowrap; transition:all 0.2s; background:none; border-top:none; border-left:none; border-right:none; }
+  .nav-tab.active { color:var(--white); border-bottom-color:var(--white); }
+  .nav-tab:hover:not(.active) { color:var(--off-white); }
+
+  /* SCREENS */
+  .screen { display:none; }
+  .screen.active { display:block; }
+
+  /* PAGE LAYOUT */
+  .page-wrap { max-width:680px; margin:0 auto; padding:28px 16px; }
+  .page-heading { font-family:'Bebas Neue',sans-serif; font-size:2rem; letter-spacing:3px; margin-bottom:4px; }
+  .page-sub { font-size:0.85rem; color:var(--grey); margin-bottom:24px; line-height:1.5; }
+
+  /* RESET NOTICE */
+  .reset-notice { display:flex; align-items:center; gap:10px; background:var(--card-bg); border:1px solid var(--border); border-radius:6px; padding:12px 16px; margin-bottom:22px; font-size:0.8rem; color:var(--grey); }
+  .reset-dot { width:6px; height:6px; background:var(--gold); border-radius:50%; flex-shrink:0; animation:pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* GUEST NOTICE */
+  .guest-notice { background:var(--card-bg); border:1px solid var(--border); border-radius:8px; padding:20px; text-align:center; margin-bottom:24px; }
+  .guest-notice p { font-size:0.88rem; color:var(--grey); margin-bottom:14px; line-height:1.5; }
+  .guest-actions { display:flex; gap:10px; justify-content:center; }
+
+  /* CRITERIA GRID */
+  .criteria-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; }
+  @media(max-width:480px){ .criteria-grid{grid-template-columns:1fr;} }
+
+  .criteria-card { background:var(--card-bg); border:1px solid var(--border); border-radius:8px; padding:20px 18px; cursor:pointer; transition:all 0.2s; position:relative; overflow:hidden; }
+  .criteria-card.available:hover { border-color:var(--white); transform:translateY(-2px); box-shadow:0 6px 20px rgba(0,0,0,0.4); }
+  .criteria-card.completed { border-color:var(--gold); opacity:0.75; cursor:default; }
+  .criteria-card.locked { opacity:0.4; cursor:default; }
+
+  .cc-icon { font-size:1.8rem; margin-bottom:10px; line-height:1; }
+  .cc-title { font-family:'Barlow Condensed',sans-serif; font-size:1.05rem; font-weight:700; letter-spacing:0.5px; text-transform:uppercase; margin-bottom:4px; }
+  .cc-desc { font-size:0.78rem; color:var(--grey); line-height:1.4; margin-bottom:14px; }
+  .cc-status { font-family:'Barlow Condensed',sans-serif; font-size:0.75rem; font-weight:600; letter-spacing:1px; text-transform:uppercase; }
+  .status-available { color:var(--white); }
+  .status-completed { color:var(--gold); }
+  .status-locked { color:var(--grey); }
+  .cc-arrow { position:absolute; right:16px; top:50%; transform:translateY(-50%); font-size:1.1rem; color:var(--light-grey); transition:all 0.2s; }
+  .criteria-card.available:hover .cc-arrow { color:var(--white); right:12px; }
+  .cc-prog { position:absolute; bottom:0; left:0; height:2px; background:var(--white); transition:width 0.4s; }
+  .criteria-card.completed .cc-prog { background:var(--gold); }
+
+  /* VOTE PAGE */
+  .vote-wrap { max-width:520px; margin:0 auto; padding:20px 16px; }
+  .vote-top { display:flex; align-items:center; gap:14px; margin-bottom:22px; }
+  .back-btn { background:transparent; border:1px solid var(--border); color:var(--grey); width:38px; height:38px; border-radius:4px; cursor:pointer; font-size:1.1rem; display:flex; align-items:center; justify-content:center; transition:all 0.2s; flex-shrink:0; }
+  .back-btn:hover { border-color:var(--white); color:var(--white); }
+  .vote-crit-title { font-family:'Bebas Neue',sans-serif; font-size:1.6rem; letter-spacing:2px; line-height:1; }
+  .vote-crit-sub { font-size:0.75rem; color:var(--grey); margin-top:2px; }
+
+  /* Progress */
+  .vote-prog { margin-bottom:22px; }
+  .vp-row { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px; }
+  .vp-count { font-family:'Bebas Neue',sans-serif; font-size:1.2rem; }
+  .vp-label { font-family:'Barlow Condensed',sans-serif; font-size:0.75rem; letter-spacing:1px; text-transform:uppercase; color:var(--grey); }
+  .vp-track { height:3px; background:var(--border); border-radius:2px; overflow:hidden; }
+  .vp-fill { height:100%; background:var(--white); border-radius:2px; transition:width 0.4s ease; }
+
+  /* Club card */
+  .card-stage { position:relative; display:flex; align-items:center; justify-content:center; margin-bottom:22px; min-height:110px; }
+  .club-card { width:100%; background:var(--card-bg); border:1px solid var(--border); border-radius:10px; padding:22px 20px; display:flex; align-items:center; gap:18px; position:absolute; transition:transform 0.3s ease, opacity 0.3s ease; }
+  .club-logo-box { width:72px; height:72px; background:var(--border); border-radius:6px; display:flex; align-items:center; justify-content:center; font-family:'Bebas Neue',sans-serif; font-size:1.9rem; color:var(--grey); flex-shrink:0; overflow:hidden; }
+  .club-logo-box img { width:100%; height:100%; object-fit:contain; padding:6px; }
+  .club-info { flex:1; min-width:0; }
+  .club-name { font-family:'Bebas Neue',sans-serif; font-size:1.55rem; letter-spacing:2px; line-height:1.1; margin-bottom:4px; }
+  .club-area { font-family:'Barlow Condensed',sans-serif; font-size:0.72rem; letter-spacing:2px; text-transform:uppercase; color:var(--grey); }
+  .card-num { position:absolute; top:10px; right:14px; font-family:'Barlow Condensed',sans-serif; font-size:0.68rem; letter-spacing:1px; color:var(--light-grey); }
+
+  /* Tier buttons */
+  .tier-label { font-family:'Barlow Condensed',sans-serif; font-size:0.72rem; letter-spacing:2px; text-transform:uppercase; color:var(--grey); text-align:center; margin-bottom:10px; }
+  .tier-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:8px; }
+  .tier-btn { padding:16px 8px 12px; border-radius:6px; font-family:'Bebas Neue',sans-serif; font-size:1.6rem; letter-spacing:2px; cursor:pointer; border:1px solid; background:var(--card-bg); display:flex; flex-direction:column; align-items:center; gap:2px; user-select:none; transition:all 0.15s; }
+  .tier-btn:active { transform:scale(0.94); }
+  .tier-btn span { display:block; font-family:'Barlow',sans-serif; font-size:0.57rem; font-weight:500; opacity:0.65; text-transform:uppercase; letter-spacing:0.3px; }
+  .ts { color:var(--s); border-color:rgba(255,215,0,0.2); } .ts:hover{background:rgba(255,215,0,0.08);border-color:rgba(255,215,0,0.5);}
+  .ta { color:var(--a); border-color:rgba(152,255,152,0.2); } .ta:hover{background:rgba(152,255,152,0.08);border-color:rgba(152,255,152,0.5);}
+  .tb { color:var(--b); border-color:rgba(135,206,235,0.2); } .tb:hover{background:rgba(135,206,235,0.08);border-color:rgba(135,206,235,0.5);}
+  .tc { color:var(--c); border-color:rgba(255,179,71,0.2); } .tc:hover{background:rgba(255,179,71,0.08);border-color:rgba(255,179,71,0.5);}
+  .td { color:var(--d); border-color:rgba(255,140,148,0.2); } .td:hover{background:rgba(255,140,148,0.08);border-color:rgba(255,140,148,0.5);}
+  .tf { color:var(--f); border-color:rgba(204,85,85,0.2); } .tf:hover{background:rgba(204,85,85,0.08);border-color:rgba(204,85,85,0.5);}
+  .skip-btn { width:100%; padding:13px; background:transparent; border:1px dashed var(--border); border-radius:6px; color:var(--grey); font-family:'Barlow Condensed',sans-serif; font-size:0.85rem; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; cursor:pointer; transition:all 0.2s; }
+  .skip-btn:hover { border-color:var(--grey); color:var(--off-white); }
+
+  /* Toast */
+  .feedback-toast { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%) scale(0.75); background:rgba(17,17,17,0.95); border:1px solid var(--border); border-radius:10px; padding:16px 34px; font-family:'Bebas Neue',sans-serif; font-size:2.6rem; letter-spacing:4px; opacity:0; pointer-events:none; transition:opacity 0.18s,transform 0.18s; z-index:999; backdrop-filter:blur(8px); }
+  .feedback-toast.show { opacity:1; transform:translate(-50%,-50%) scale(1); }
+
+  /* Complete */
+  .vote-complete { display:none; text-align:center; padding:36px 20px; }
+  .vote-complete.show { display:block; }
+  .complete-ring { width:60px; height:60px; border:2px solid var(--gold); border-radius:50%; display:flex; align-items:center; justify-content:center; margin:0 auto 18px; font-size:1.7rem; color:var(--gold); }
+  .complete-title { font-family:'Bebas Neue',sans-serif; font-size:2.3rem; letter-spacing:3px; margin-bottom:8px; }
+  .complete-sub { font-size:0.88rem; color:var(--grey); line-height:1.6; margin-bottom:26px; max-width:300px; margin-left:auto; margin-right:auto; }
+  .complete-actions { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+  .btn-outline { background:transparent; border:1px solid var(--border); color:var(--white); padding:11px 20px; font-family:'Barlow Condensed',sans-serif; font-size:0.85rem; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; cursor:pointer; transition:all 0.2s; border-radius:2px; }
+  .btn-outline:hover { background:var(--border); }
+
+  /* LEADERBOARD */
+  .lb-pills { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px; }
+  .pill { padding:7px 15px; border:1px solid var(--border); border-radius:100px; font-family:'Barlow Condensed',sans-serif; font-size:0.82rem; font-weight:600; letter-spacing:0.5px; cursor:pointer; transition:all 0.2s; background:transparent; color:var(--grey); }
+  .pill.active { background:var(--white); color:var(--black); border-color:var(--white); }
+  .pill:hover:not(.active) { border-color:var(--white); color:var(--white); }
+  .time-tabs { display:flex; border:1px solid var(--border); border-radius:4px; overflow:hidden; margin-bottom:22px; }
+  .time-tab { flex:1; padding:10px; font-family:'Barlow Condensed',sans-serif; font-size:0.8rem; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; text-align:center; cursor:pointer; background:transparent; color:var(--grey); border:none; transition:all 0.2s; }
+  .time-tab.active { background:var(--white); color:var(--black); }
+  .lb-list { display:flex; flex-direction:column; gap:8px; }
+  .lb-item { display:flex; align-items:center; gap:14px; background:var(--card-bg); border:1px solid var(--border); border-radius:6px; padding:13px 16px; transition:border-color 0.2s; }
+  .lb-item:hover { border-color:var(--light-grey); }
+  .lb-rank { font-family:'Bebas Neue',sans-serif; font-size:1.7rem; color:var(--grey); width:30px; text-align:center; flex-shrink:0; }
+  .lb-item:nth-child(1) .lb-rank{color:var(--s)} .lb-item:nth-child(2) .lb-rank{color:var(--off-white)} .lb-item:nth-child(3) .lb-rank{color:var(--gold)}
+  .lb-logo { width:42px; height:42px; background:var(--border); border-radius:4px; display:flex; align-items:center; justify-content:center; font-family:'Bebas Neue',sans-serif; font-size:1rem; color:var(--grey); flex-shrink:0; overflow:hidden; }
+  .lb-logo img { width:100%; height:100%; object-fit:contain; padding:4px; }
+  .lb-info { flex:1; min-width:0; }
+  .lb-name { font-family:'Barlow Condensed',sans-serif; font-size:1rem; font-weight:700; letter-spacing:0.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .lb-meta { font-size:0.72rem; color:var(--grey); margin-top:2px; }
+  .lb-score-wrap { text-align:right; flex-shrink:0; }
+  .lb-score { font-family:'Bebas Neue',sans-serif; font-size:1.7rem; line-height:1; }
+  .lb-score-lbl { font-size:0.62rem; letter-spacing:1px; text-transform:uppercase; color:var(--grey); }
+  .sh { color:var(--a); } .sm { color:var(--c); } .sl { color:var(--d); }
+
+  /* HOW IT WORKS */
+  .how-step { display:flex; gap:16px; margin-bottom:24px; }
+  .step-num { font-family:'Bebas Neue',sans-serif; font-size:2.8rem; line-height:1; color:var(--border); flex-shrink:0; width:44px; }
+  .step-title { font-family:'Barlow Condensed',sans-serif; font-size:1.05rem; font-weight:700; letter-spacing:1px; text-transform:uppercase; margin-bottom:4px; }
+  .step-desc { font-size:0.88rem; color:var(--grey); line-height:1.6; }
+  .tier-ref { background:var(--card-bg); border:1px solid var(--border); border-radius:8px; padding:20px; margin-top:28px; }
+  .tier-ref-lbl { font-family:'Barlow Condensed',sans-serif; font-size:0.72rem; letter-spacing:2px; text-transform:uppercase; color:var(--grey); margin-bottom:14px; }
+  .tier-ref-row { display:flex; align-items:center; gap:14px; padding:9px 0; border-bottom:1px solid var(--border); }
+  .tier-ref-row:last-child{border-bottom:none}
+  .tier-badge { font-family:'Bebas Neue',sans-serif; font-size:1.4rem; width:28px; text-align:center; }
+  .tier-ref-desc { font-size:0.84rem; color:var(--off-white); }
+  .tier-ref-pts { font-family:'Barlow Condensed',sans-serif; font-size:0.78rem; color:var(--grey); margin-left:auto; }
+
+  /* AUTH MODAL */
+  .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.88); z-index:200; display:flex; align-items:center; justify-content:center; padding:20px; opacity:0; pointer-events:none; transition:opacity 0.2s; }
+  .modal-overlay.show { opacity:1; pointer-events:all; }
+  .modal { background:var(--dark); border:1px solid var(--border); border-radius:8px; padding:28px 24px; width:100%; max-width:370px; transform:translateY(16px); transition:transform 0.2s; position:relative; }
+  .modal-overlay.show .modal { transform:translateY(0); }
+  .modal-title { font-family:'Bebas Neue',sans-serif; font-size:1.9rem; letter-spacing:3px; margin-bottom:4px; }
+  .modal-sub { font-size:0.82rem; color:var(--grey); margin-bottom:20px; }
+  .form-group { margin-bottom:13px; }
+  .form-label { display:block; font-family:'Barlow Condensed',sans-serif; font-size:0.72rem; letter-spacing:1.5px; text-transform:uppercase; color:var(--grey); margin-bottom:5px; }
+  .form-input { width:100%; padding:11px 13px; background:var(--card-bg); border:1px solid var(--border); border-radius:4px; color:var(--white); font-family:'Barlow',sans-serif; font-size:0.92rem; outline:none; transition:border-color 0.2s; }
+  .form-input:focus { border-color:var(--white); }
+  .modal-actions { display:flex; gap:10px; margin-top:16px; }
+  .btn-block { flex:1; padding:12px; font-family:'Barlow Condensed',sans-serif; font-size:0.85rem; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; cursor:pointer; border-radius:3px; transition:all 0.2s; }
+  .modal-close { position:absolute; top:13px; right:13px; background:none; border:none; color:var(--grey); font-size:1.4rem; cursor:pointer; line-height:1; padding:4px; }
+  .modal-close:hover { color:var(--white); }
+
+  /* VERIFY EMAIL BANNER */
+  .verify-banner { display:none; align-items:center; gap:12px; background:#1a1200; border-bottom:1px solid #4a3500; padding:11px 20px; font-size:0.82rem; flex-wrap:wrap; }
+  .verify-banner-icon { font-size:1rem; flex-shrink:0; }
+  .verify-banner-text { color:#FFB347; flex:1; min-width:160px; }
+  .verify-banner-text strong { color:#FFD700; }
+  .verify-banner-actions { display:flex; gap:8px; flex-shrink:0; }
+  .btn-verify-small { padding:6px 12px; font-family:'Barlow Condensed',sans-serif; font-size:0.72rem; font-weight:700; letter-spacing:1px; text-transform:uppercase; cursor:pointer; border-radius:2px; transition:all 0.2s; }
+  .btn-verify-resend { background:transparent; border:1px solid #4a3500; color:#FFB347; }
+  .btn-verify-resend:hover { border-color:#FFB347; }
+  .btn-verify-check { background:#FFD700; border:none; color:#000; }
+  .btn-verify-check:hover { background:#FFB347; }
+
+  /* AUTH ERROR */
+  .auth-error { display:none; background:rgba(204,85,85,0.12); border:1px solid rgba(204,85,85,0.3); border-radius:4px; padding:10px 13px; font-size:0.82rem; color:#FF8C94; margin-bottom:12px; }
+
+  /* VERIFY EMAIL VIEW IN MODAL */
+  .verify-modal-icon { font-size:2.8rem; margin-bottom:14px; }
+  .verify-modal-email { font-family:'Barlow Condensed',sans-serif; font-size:0.95rem; font-weight:700; color:var(--gold); word-break:break-all; margin:8px 0 16px; }
+  .verify-modal-steps { font-size:0.82rem; color:var(--grey); line-height:1.7; margin-bottom:20px; }
+
+  /* LOADING STATE ON BUTTONS */
+  .btn-auth-submit:disabled { opacity:0.55; cursor:not-allowed; }
+</style>
+</head>
+<body>
+
+<div class="feedback-toast" id="feedbackToast"></div>
+
+<!-- EMAIL VERIFICATION BANNER -->
+<div class="verify-banner" id="verifyBanner">
+  <div class="verify-banner-icon">✉️</div>
+  <div class="verify-banner-text"><strong>Verify your email</strong> — Check your inbox and click the link to start rating clubs.</div>
+  <div class="verify-banner-actions">
+    <button class="btn-verify-small btn-verify-resend" onclick="firebaseResendVerification()">Resend Email</button>
+    <button class="btn-verify-small btn-verify-check" onclick="firebaseRefreshVerification()">I've Verified ✓</button>
+  </div>
+</div>
+
+<!-- AUTH MODAL -->
+<div class="modal-overlay" id="authModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal()">×</button>
+
+    <!-- LOGIN VIEW -->
+    <div id="loginView">
+      <div class="modal-title">Sign In</div>
+      <div class="modal-sub">Access your rankings and weekly history</div>
+      <div class="auth-error" id="authError"></div>
+      <div class="form-group"><label class="form-label">Email</label><input type="email" class="form-input" placeholder="your@email.com" id="loginEmail"></div>
+      <div class="form-group"><label class="form-label">Password</label><input type="password" class="form-input" placeholder="••••••••" id="loginPass"></div>
+      <div class="modal-actions">
+        <button class="btn-block btn-outline" onclick="switchToRegister()">Register</button>
+        <button class="btn-block btn-primary btn-auth-submit" data-label="Sign In" onclick="doLogin()">Sign In</button>
+      </div>
+    </div>
+
+    <!-- REGISTER VIEW -->
+    <div id="registerView" style="display:none">
+      <div class="modal-title">Register</div>
+      <div class="modal-sub">Free account — start ranking immediately</div>
+      <div class="auth-error" id="authErrorReg"></div>
+      <div class="form-group"><label class="form-label">Username</label><input type="text" class="form-input" placeholder="YourUsername" id="regUsername"></div>
+      <div class="form-group"><label class="form-label">Email</label><input type="email" class="form-input" placeholder="your@email.com" id="regEmail"></div>
+      <div class="form-group"><label class="form-label">Password</label><input type="password" class="form-input" placeholder="Min 6 characters" id="regPass"></div>
+      <div class="modal-actions">
+        <button class="btn-block btn-outline" onclick="switchToLogin()">Sign In</button>
+        <button class="btn-block btn-primary btn-auth-submit" data-label="Create Account" onclick="doRegister()">Create Account</button>
+      </div>
+    </div>
+
+    <!-- VERIFY EMAIL VIEW (shown after registration) -->
+    <div id="verifyEmailView" style="display:none; text-align:center;">
+      <div class="verify-modal-icon">✉️</div>
+      <div class="modal-title">Check Your Email</div>
+      <div class="modal-sub">We sent a verification link to:</div>
+      <div class="verify-modal-email" id="verifyEmailAddress"></div>
+      <div class="verify-modal-steps">
+        1. Open your email inbox<br>
+        2. Click the verification link<br>
+        3. Come back and tap the button below
+      </div>
+      <button class="btn-block btn-primary" style="margin-bottom:10px" onclick="firebaseRefreshVerification(); closeModal();">I've Verified My Email ✓</button>
+      <button class="btn-block btn-outline" onclick="firebaseResendVerification()">Resend Verification Email</button>
+    </div>
+
+  </div>
+</div>
+
+<!-- HEADER -->
+<header class="site-header">
+  <div class="logo-area" onclick="goHome()">
+    <img src="https://www.dropbox.com/scl/fi/063yw623to49xrnakiq2h/TRANSPARENT-LOGO.png?rlkey=kz447gvl9s78xlazf42g80ju7&raw=1" alt="Logo" onerror="this.style.display='none'">
+    <span class="site-title">Pattaya Leaderboards</span>
+  </div>
+  <div class="header-right" id="headerRight">
+    <button class="btn-login" onclick="openModal('login')">Sign In</button>
+    <button class="btn-primary" onclick="openModal('register')">Register</button>
+  </div>
+</header>
+
+<!-- NAV -->
+<nav class="nav-tabs">
+  <button class="nav-tab active" id="tab-rate" onclick="showScreen('rate',this)">Rate Clubs</button>
+  <button class="nav-tab" id="tab-lb" onclick="showScreen('leaderboard',this)">Leaderboards</button>
+  <button class="nav-tab" id="tab-how" onclick="showScreen('how',this)">How It Works</button>
+</nav>
+
+<!-- ═══ RATE SCREEN ═══ -->
+<div class="screen active" id="screen-rate">
+
+  <!-- CRITERIA HOME -->
+  <div id="criteriaHome">
+    <div class="page-wrap">
+      <div class="page-heading">Rate Clubs</div>
+      <div class="page-sub">Select a criteria to begin. Each criteria can be rated once per week — resets every Sunday at midnight.</div>
+      <div class="reset-notice"><div class="reset-dot"></div><span id="resetTimer">Calculating reset time...</span></div>
+      <div class="guest-notice" id="guestNotice">
+        <p>Create a free account to submit rankings and contribute to the community leaderboards.</p>
+        <div class="guest-actions">
+          <button class="btn-outline" onclick="openModal('login')">Sign In</button>
+          <button class="btn-primary" onclick="openModal('register')">Create Free Account</button>
+        </div>
+      </div>
+      <div class="criteria-grid" id="criteriaGrid"></div>
+    </div>
+  </div>
+
+  <!-- VOTE PAGE -->
+  <div id="votePage" style="display:none">
+    <div class="vote-wrap">
+      <div class="vote-top">
+        <button class="back-btn" onclick="goHome()">←</button>
+        <div>
+          <div class="vote-crit-title" id="vCritTitle"></div>
+          <div class="vote-crit-sub" id="vCritSub"></div>
+        </div>
+      </div>
+      <div class="vote-prog">
+        <div class="vp-row"><span class="vp-label">Progress</span><span class="vp-count" id="vProgCount">0 / 0</span></div>
+        <div class="vp-track"><div class="vp-fill" id="vProgFill" style="width:0%"></div></div>
+      </div>
+      <div class="card-stage" id="cardStage">
+        <div class="club-card" id="clubCard">
+          <div class="card-num" id="cardNum"></div>
+          <div class="club-logo-box" id="clubLogo"></div>
+          <div class="club-info">
+            <div class="club-name" id="clubName">—</div>
+            <div class="club-area" id="clubArea"></div>
+          </div>
+        </div>
+      </div>
+      <div class="vote-complete" id="voteComplete">
+        <div class="complete-ring">✓</div>
+        <div class="complete-title">Criteria Complete!</div>
+        <div class="complete-sub">Your rankings are saved. Come back next Sunday to rate again and keep the data fresh.</div>
+        <div class="complete-actions">
+          <button class="btn-outline" onclick="goHome()">Rate Another Criteria</button>
+          <button class="btn-primary" onclick="showScreen('leaderboard',document.getElementById('tab-lb'))">View Leaderboards</button>
+        </div>
+      </div>
+      <div id="tierSection">
+        <div class="tier-label">Tap a Tier to Rate This Club</div>
+        <div class="tier-grid">
+          <button class="tier-btn ts" onclick="assign('S')">S<span>Elite</span></button>
+          <button class="tier-btn ta" onclick="assign('A')">A<span>Great</span></button>
+          <button class="tier-btn tb" onclick="assign('B')">B<span>Good</span></button>
+          <button class="tier-btn tc" onclick="assign('C')">C<span>Average</span></button>
+          <button class="tier-btn td" onclick="assign('D')">D<span>Below Avg</span></button>
+          <button class="tier-btn tf" onclick="assign('F')">F<span>Poor</span></button>
+        </div>
+        <button class="skip-btn" onclick="assign('SKIP')">Skip — Haven't Visited This Club</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ LEADERBOARD SCREEN ═══ -->
+<div class="screen" id="screen-leaderboard">
+  <div class="page-wrap">
+    <div class="page-heading">Leaderboards</div>
+    <div class="page-sub">Top 10 clubs ranked by the community. Updated with every submission.</div>
+    <div class="lb-pills" id="lbPills"></div>
+    <div class="time-tabs">
+      <button class="time-tab active" onclick="setTime('weekly',this)">This Week</button>
+      <button class="time-tab" onclick="setTime('monthly',this)">This Month</button>
+      <button class="time-tab" onclick="setTime('alltime',this)">All Time</button>
+    </div>
+    <div class="lb-list" id="lbList"></div>
+  </div>
+</div>
+
+<!-- ═══ HOW IT WORKS SCREEN ═══ -->
+<div class="screen" id="screen-how">
+  <div class="page-wrap">
+    <div class="page-heading">How It Works</div>
+    <div class="page-sub" style="margin-bottom:28px">Community-powered rankings for Pattaya Gents Clubs</div>
+    <div class="how-step"><div class="step-num">01</div><div><div class="step-title">Create a Free Account</div><div class="step-desc">Register with your email to save rankings and contribute to the community leaderboards. Submissions are anonymous.</div></div></div>
+    <div class="how-step"><div class="step-num">02</div><div><div class="step-title">Choose a Criteria</div><div class="step-desc">Pick from 6 categories: Value for Money, Naughtiness, Attractiveness of Ladies, Number of Ladies, Decor & Facilities, or Level of Service.</div></div></div>
+    <div class="how-step"><div class="step-num">03</div><div><div class="step-title">Rate Each Club</div><div class="step-desc">Club cards appear one at a time. Tap a tier from S (Elite) to F (Poor). Skip any clubs you haven't personally visited.</div></div></div>
+    <div class="how-step"><div class="step-num">04</div><div><div class="step-title">Weekly Reset Every Sunday</div><div class="step-desc">One submission per criteria per week. This keeps the data fresh and reflects current quality, not just historical reputation.</div></div></div>
+    <div class="how-step"><div class="step-num">05</div><div><div class="step-title">View the Leaderboards</div><div class="step-desc">All submissions aggregate into Weekly, Monthly and All-Time Top 10 leaderboards per criteria, updated in real time.</div></div></div>
+    <div class="tier-ref">
+      <div class="tier-ref-lbl">Tier Scoring Reference</div>
+      <div class="tier-ref-row"><span class="tier-badge" style="color:var(--s)">S</span><span class="tier-ref-desc">Elite — Absolute best in Pattaya</span><span class="tier-ref-pts">100 pts</span></div>
+      <div class="tier-ref-row"><span class="tier-badge" style="color:var(--a)">A</span><span class="tier-ref-desc">Great — Highly recommended</span><span class="tier-ref-pts">80 pts</span></div>
+      <div class="tier-ref-row"><span class="tier-badge" style="color:var(--b)">B</span><span class="tier-ref-desc">Good — Worth a visit</span><span class="tier-ref-pts">60 pts</span></div>
+      <div class="tier-ref-row"><span class="tier-badge" style="color:var(--c)">C</span><span class="tier-ref-desc">Average — Nothing special</span><span class="tier-ref-pts">40 pts</span></div>
+      <div class="tier-ref-row"><span class="tier-badge" style="color:var(--d)">D</span><span class="tier-ref-desc">Below Average — Disappointing</span><span class="tier-ref-pts">20 pts</span></div>
+      <div class="tier-ref-row"><span class="tier-badge" style="color:var(--f)">F</span><span class="tier-ref-desc">Poor — Avoid</span><span class="tier-ref-pts">0 pts</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/*
+ ═══════════════════════════════════════════════════════
+ FIREBASE SETUP INSTRUCTIONS
+ ═══════════════════════════════════════════════════════
+ Before this site works with real auth, complete these steps:
+
+ 1. Go to https://console.firebase.google.com
+ 2. Click "Add project" → name it "pattaya-leaderboards"
+ 3. Once created: Project Settings (gear icon) → Your Apps → Add Web App
+ 4. Copy the firebaseConfig object and paste it into the
+    <script type="module"> section above (replace the placeholder values)
+
+ 5. In Firebase Console → Authentication → Sign-in method:
+    Enable "Email/Password"
+
+ 6. In Firebase Console → Firestore Database:
+    Click "Create database" → Start in production mode
+    Add these Security Rules:
+    ─────────────────────────────────────────────────────
+    rules_version = '2';
+    service cloud.firestore {
+      match /databases/{database}/documents {
+        // Users can read/write their own data only
+        match /users/{userId} {
+          allow read, write: if request.auth != null && request.auth.uid == userId;
+        }
+        // Weekly submission records: user can read/write their own
+        match /weekly_submissions/{docId} {
+          allow read, write: if request.auth != null && docId.matches(request.auth.uid + '_.*');
+        }
+        // Vote records: user can write their own, anyone can read
+        match /votes/{docId} {
+          allow read: if true;
+          allow write: if request.auth != null && request.resource.data.userId == request.auth.uid;
+        }
+        // Aggregated scores: anyone can read, auth users can write
+        match /scores/{docId} {
+          allow read: if true;
+          allow write: if request.auth != null;
+        }
+      }
+    }
+    ─────────────────────────────────────────────────────
+ 7. Deploy this HTML file to GitHub Pages
+
+ Until Firebase is configured, the site runs in DEMO MODE:
+ auth works locally in-memory (no real persistence).
+ ═══════════════════════════════════════════════════════
+*/
+const CRITERIA=[
+  {id:'value',  label:'Value for Money',    icon:'💰',desc:'How far does your money go?'},
+  {id:'naughty',label:'Naughtiness',        icon:'🔥',desc:'How wild does it get?'},
+  {id:'attract',label:'Attractiveness',     icon:'⭐',desc:'How attractive are the ladies?'},
+  {id:'ladies', label:'Number of Ladies',   icon:'👯',desc:'How many ladies are on stage?'},
+  {id:'decor',  label:'Decor & Facilities', icon:'🏛',desc:'Quality of the venue and facilities'},
+  {id:'service',label:'Level of Service',   icon:'🍸',desc:'Staff attitude and service quality'},
+];
+
+const CLUBS=[
+  {id:1, name:'Windmill Club',   area:'Walking Street',initial:'W'},
+  {id:2, name:'Baccara',         area:'Walking Street',initial:'B'},
+  {id:3, name:'Superbabies',     area:'Walking Street',initial:'S'},
+  {id:4, name:'Shark Club',      area:'Walking Street',initial:'S'},
+  {id:5, name:'Play Skool',      area:'Walking Street',initial:'P'},
+  {id:6, name:'Tiger Bar',       area:'Walking Street',initial:'T'},
+  {id:7, name:'Secrets Club',    area:'Soi 6',         initial:'S'},
+  {id:8, name:'Crystal Club',    area:'North Pattaya', initial:'C'},
+  {id:9, name:'Angelwitch',      area:'Walking Street',initial:'A'},
+  {id:10,name:'Billboard Club',  area:'Walking Street',initial:'B'},
+  {id:11,name:'Myst Club',       area:'Beach Road',    initial:'M'},
+  {id:12,name:'Penthouse Club',  area:'Soi Buakhao',   initial:'P'},
+  {id:13,name:'Hollywood Club',  area:'Walking Street',initial:'H'},
+  {id:14,name:'Kittens Club',    area:'Soi 6',         initial:'K'},
+  {id:15,name:'Pattaya Pussycat',area:'Beach Road',    initial:'P'},
+  {id:16,name:'Carousel',        area:'Walking Street',initial:'C'},
+  {id:17,name:'Casino Club',     area:'North Pattaya', initial:'C'},
+  {id:18,name:'Diamond Club',    area:'Walking Street',initial:'D'},
+  {id:19,name:'Obsessions',      area:'Soi Buakhao',   initial:'O'},
+  {id:20,name:'Showcase Club',   area:'Walking Street',initial:'S'},
+];
+
+const SCORES={S:100,A:80,B:60,C:40,D:20,F:0};
+
+const state={
+  user:null, activeCrit:null,
+  rankings:{}, weeklyDone:{},
+  simData:{}, lbCrit:'value', lbTime:'weekly'
+};
+
+CRITERIA.forEach(c=>{
+  state.rankings[c.id]={};
+  state.simData[c.id]={};
+  CLUBS.forEach(cl=>{ state.simData[c.id][cl.id]={score:Math.floor(Math.random()*55)+28,votes:Math.floor(Math.random()*60)+8}; });
+});
+
+// ── SCREENS ──
+function showScreen(id,tab){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('screen-'+id).classList.add('active');
+  tab.classList.add('active');
+  if(id==='leaderboard') renderLb();
+  if(id==='rate') goHome();
+}
+
+// ── CRITERIA HOME ──
+function goHome(){
+  state.activeCrit=null;
+  document.getElementById('criteriaHome').style.display='block';
+  document.getElementById('votePage').style.display='none';
+  renderGrid();
+  updateTimer();
+}
+
+function renderGrid(){
+  document.getElementById('guestNotice').style.display=state.user?'none':'block';
+  const grid=document.getElementById('criteriaGrid');
+  grid.innerHTML=CRITERIA.map(c=>{
+    const done=!!state.weeklyDone[c.id];
+    const locked=!state.user;
+    const unverified = state.user && !state.user.verified;
+    const ranked=Object.keys(state.rankings[c.id]).length;
+    const pct=(ranked/CLUBS.length)*100;
+    let cls, status, onclick='';
+    if(locked){
+      cls='locked';
+      status=`<div class="cc-status status-locked">🔒 Sign in to rate</div>`;
+    } else if(unverified){
+      cls='locked';
+      status=`<div class="cc-status status-locked">✉️ Verify email to rate</div>`;
+    } else if(done){
+      cls='completed';
+      status=`<div class="cc-status status-completed">✓ Submitted this week</div>`;
+    } else {
+      cls='available';
+      status=`<div class="cc-status status-available">Tap to Rate →</div>`;
+      onclick=`startVoting('${c.id}')`;
+    }
+    return `<div class="criteria-card ${cls}" onclick="${onclick}">
+      <div class="cc-icon">${c.icon}</div>
+      <div class="cc-title">${c.label}</div>
+      <div class="cc-desc">${c.desc}</div>
+      ${status}
+      ${!done?`<div class="cc-prog" style="width:${pct}%"></div>`:''}
+      ${cls==='available'?`<div class="cc-arrow">→</div>`:''}
+    </div>`;
+  }).join('');
+}
+
+// ── VOTING ──
+function startVoting(cid){
+  state.activeCrit=cid;
+  const c=CRITERIA.find(x=>x.id===cid);
+  document.getElementById('criteriaHome').style.display='none';
+  document.getElementById('votePage').style.display='block';
+  document.getElementById('voteComplete').classList.remove('show');
+  document.getElementById('tierSection').style.display='block';
+  document.getElementById('clubCard').style.display='flex';
+  document.getElementById('vCritTitle').textContent=c.label;
+  document.getElementById('vCritSub').textContent=c.desc;
+  renderVoteCard();
+}
+
+function unranked(cid){ return CLUBS.filter(cl=>!(cl.id in state.rankings[cid])); }
+
+function renderVoteCard(){
+  const cid=state.activeCrit;
+  const rem=unranked(cid);
+  const total=CLUBS.length;
+  const done=total-rem.length;
+  document.getElementById('vProgCount').textContent=`${done} / ${total}`;
+  document.getElementById('vProgFill').style.width=`${(done/total)*100}%`;
+  if(!rem.length){
+    state.weeklyDone[cid]=true;
+    document.getElementById('clubCard').style.display='none';
+    document.getElementById('tierSection').style.display='none';
+    document.getElementById('voteComplete').classList.add('show');
+    // Save to Firestore if user is logged in and verified
+    if(state.user && state.user.verified && typeof saveSubmissionToFirestore === 'function'){
+      saveSubmissionToFirestore(cid, state.rankings[cid]).catch(err => console.error('Save failed:', err));
+    }
+    return;
+  }
+  const cl=rem[0];
+  document.getElementById('cardNum').textContent=`${done+1} of ${total}`;
+  document.getElementById('clubName').textContent=cl.name;
+  document.getElementById('clubArea').textContent=cl.area;
+  document.getElementById('clubLogo').textContent=cl.initial;
+}
+
+function assign(tier){
+  const cid=state.activeCrit;
+  const rem=unranked(cid);
+  if(!rem.length) return;
+  state.rankings[cid][rem[0].id]=tier;
+  if(tier!=='SKIP') showToast(tier);
+  const card=document.getElementById('clubCard');
+  card.style.transition='transform 0.3s ease,opacity 0.3s ease';
+  if(tier==='SKIP'){ card.style.transform='translateY(-26px)'; card.style.opacity='0'; }
+  else if(['S','A','B'].includes(tier)){ card.style.transform='translateX(130px) rotate(7deg)'; card.style.opacity='0'; }
+  else { card.style.transform='translateX(-130px) rotate(-7deg)'; card.style.opacity='0'; }
+  setTimeout(()=>{
+    card.style.transition='none'; card.style.transform=''; card.style.opacity='1';
+    renderVoteCard();
+    setTimeout(()=>{ card.style.transition=''; },30);
+  },310);
+}
+
+function showToast(tier){
+  const colors={S:'var(--s)',A:'var(--a)',B:'var(--b)',C:'var(--c)',D:'var(--d)',F:'var(--f)'};
+  const t=document.getElementById('feedbackToast');
+  t.textContent=tier+' Tier'; t.style.color=colors[tier];
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),650);
+}
+
+// ── LEADERBOARD ──
+function renderLb(){
+  const pills=document.getElementById('lbPills');
+  pills.innerHTML=CRITERIA.map(c=>`<button class="pill ${c.id===state.lbCrit?'active':''}" onclick="setLbCrit('${c.id}')">${c.label}</button>`).join('');
+  const cid=state.lbCrit;
+  const sim=state.simData[cid];
+  const ur=state.rankings[cid];
+  const scores=CLUBS.map(cl=>{
+    let sc=sim[cl.id].score, v=sim[cl.id].votes;
+    if(cl.id in ur && ur[cl.id]!=='SKIP'){ sc=Math.round((sc*v+SCORES[ur[cl.id]])/(v+1)); v++; }
+    return{cl,sc,v};
+  }).sort((a,b)=>b.sc-a.sc).slice(0,10);
+  document.getElementById('lbList').innerHTML=scores.map((item,i)=>{
+    const cls=item.sc>=75?'sh':item.sc>=50?'sm':'sl';
+    return`<div class="lb-item">
+      <div class="lb-rank">${i+1}</div>
+      <div class="lb-logo">${item.cl.initial}</div>
+      <div class="lb-info"><div class="lb-name">${item.cl.name}</div><div class="lb-meta">${item.cl.area} · ${item.v} votes</div></div>
+      <div class="lb-score-wrap"><div class="lb-score ${cls}">${item.sc}</div><div class="lb-score-lbl">Score</div></div>
+    </div>`;
+  }).join('');
+}
+
+function setLbCrit(id){ state.lbCrit=id; renderLb(); }
+function setTime(t,el){ state.lbTime=t; document.querySelectorAll('.time-tab').forEach(x=>x.classList.remove('active')); el.classList.add('active'); renderLb(); }
+
+// ── TIMER ──
+function updateTimer(){
+  const now=new Date();
+  const sun=new Date(now);
+  const d=(7-now.getDay())%7||7;
+  sun.setDate(now.getDate()+d); sun.setHours(0,0,0,0);
+  const diff=sun-now;
+  const days=Math.floor(diff/86400000);
+  const hrs=Math.floor((diff%86400000)/3600000);
+  const mins=Math.floor((diff%3600000)/60000);
+  const el=document.getElementById('resetTimer');
+  if(el) el.textContent=`Weekly reset in ${days}d ${hrs}h ${mins}m — every Sunday at midnight`;
+}
+setInterval(updateTimer,60000);
+
+// ── AUTH ──
+function openModal(v){
+  document.getElementById('authModal').classList.add('show');
+  document.getElementById('loginView').style.display = v==='login' ? 'block' : 'none';
+  document.getElementById('registerView').style.display = v==='register' ? 'block' : 'none';
+  document.getElementById('verifyEmailView').style.display = 'none';
+  // Clear any previous errors
+  ['authError','authErrorReg'].forEach(id=>{ const e=document.getElementById(id); if(e){e.textContent='';e.style.display='none';} });
+}
+function closeModal(){ document.getElementById('authModal').classList.remove('show'); }
+function switchToRegister(){
+  document.getElementById('loginView').style.display='none';
+  document.getElementById('registerView').style.display='block';
+  document.getElementById('verifyEmailView').style.display='none';
+  ['authError','authErrorReg'].forEach(id=>{ const e=document.getElementById(id); if(e){e.textContent='';e.style.display='none';} });
+}
+function switchToLogin(){
+  document.getElementById('loginView').style.display='block';
+  document.getElementById('registerView').style.display='none';
+  document.getElementById('verifyEmailView').style.display='none';
+  ['authError','authErrorReg'].forEach(id=>{ const e=document.getElementById(id); if(e){e.textContent='';e.style.display='none';} });
+}
+
+// These call into the Firebase module functions defined in the <script type="module"> above
+function doLogin(){
+  const e = document.getElementById('loginEmail').value.trim();
+  const p = document.getElementById('loginPass').value;
+  if(!e || !p){ showAuthErrorInline('Please enter your email and password.'); return; }
+  if(typeof firebaseLogin === 'function') firebaseLogin(e, p);
+  else showAuthErrorInline('Firebase not configured yet. See setup instructions.');
+}
+
+function doRegister(){
+  const u = document.getElementById('regUsername').value.trim();
+  const e = document.getElementById('regEmail').value.trim();
+  const p = document.getElementById('regPass').value;
+  if(!u || !e || !p){ showAuthErrorInline('Please fill in all fields.'); return; }
+  if(p.length < 6){ showAuthErrorInline('Password must be at least 6 characters.'); return; }
+  if(typeof firebaseRegister === 'function') firebaseRegister(u, e, p);
+  else showAuthErrorInline('Firebase not configured yet. See setup instructions.');
+}
+
+function showAuthErrorInline(msg){
+  const el = document.getElementById('authError');
+  if(el){ el.textContent = msg; el.style.display = 'block'; }
+}
+
+function logout(){
+  if(typeof firebaseLogout === 'function') firebaseLogout();
+  else { state.user=null; updateHeader(); renderGrid(); }
+}
+
+function updateHeader(){
+  if(state.user){
+    const verifiedBadge = state.user.verified ? '' : ' <span style="color:#FFB347;font-size:0.7rem;">(unverified)</span>';
+    document.getElementById('headerRight').innerHTML=
+      `<span style="font-family:'Barlow Condensed',sans-serif;font-size:0.82rem;letter-spacing:1px;color:var(--grey);text-transform:uppercase">${state.user.username}${verifiedBadge}</span>
+       <button class="btn-login" onclick="logout()">Sign Out</button>`;
+  } else {
+    document.getElementById('headerRight').innerHTML=
+      `<button class="btn-login" onclick="openModal('login')">Sign In</button>
+       <button class="btn-primary" onclick="openModal('register')">Register</button>`;
+  }
+}
+
+document.getElementById('authModal').addEventListener('click',function(e){ if(e.target===this) closeModal(); });
+
+// ── INIT ──
+renderGrid();
+updateTimer();
+renderLb();
+</script>
+</body>
+</html>
