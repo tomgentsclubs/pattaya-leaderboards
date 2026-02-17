@@ -420,7 +420,6 @@
   /* HEADER */
   .site-header { background:var(--dark); border-bottom:1px solid var(--border); padding:14px 20px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:100; }
   .logo-area { display:flex; align-items:center; gap:10px; cursor:pointer; }
-  .logo-area img { height:32px; width:auto; }
   .site-title { font-family:'Bebas Neue',sans-serif; font-size:1.5rem; letter-spacing:2px; }
   .header-right { display:flex; align-items:center; gap:10px; }
   .btn-login { background:transparent; border:1px solid var(--border); color:var(--grey); padding:7px 14px; font-family:'Barlow Condensed',sans-serif; font-size:0.8rem; letter-spacing:1px; text-transform:uppercase; cursor:pointer; transition:all 0.2s; border-radius:2px; }
@@ -563,6 +562,7 @@
   .time-tab { flex:1; padding:10px; font-family:'Barlow Condensed',sans-serif; font-size:0.8rem; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; text-align:center; cursor:pointer; background:transparent; color:var(--grey); border:none; transition:all 0.2s; }
   .time-tab.active { background:var(--white); color:var(--black); }
   .lb-list { display:flex; flex-direction:column; gap:8px; }
+  .lb-empty { text-align:center; padding:48px 20px; color:var(--grey); font-family:'Barlow Condensed',sans-serif; font-size:0.95rem; letter-spacing:0.5px; }
   .lb-item { display:flex; align-items:center; gap:14px; background:var(--card-bg); border:1px solid var(--border); border-radius:6px; padding:13px 16px; transition:border-color 0.2s; }
   .lb-item:hover { border-color:var(--light-grey); }
   .lb-rank { font-family:'Bebas Neue',sans-serif; font-size:1.7rem; color:var(--grey); width:30px; text-align:center; flex-shrink:0; }
@@ -703,7 +703,6 @@
 <!-- HEADER -->
 <header class="site-header">
   <div class="logo-area" onclick="goHome()">
-    <img src="https://www.dropbox.com/scl/fi/063yw623to49xrnakiq2h/TRANSPARENT-LOGO.png?rlkey=kz447gvl9s78xlazf42g80ju7&raw=1" alt="Logo" onerror="this.style.display='none'">
     <span class="site-title">Pattaya Leaderboards</span>
   </div>
   <div class="header-right" id="headerRight">
@@ -991,8 +990,6 @@ const state={
 
 CRITERIA.forEach(c=>{
   state.rankings[c.id]={};
-  state.simData[c.id]={};
-  CLUBS.forEach(cl=>{ state.simData[c.id][cl.id]={score:Math.floor(Math.random()*55)+28,votes:Math.floor(Math.random()*60)+8}; });
 });
 
 // ── SCREENS ──
@@ -1178,37 +1175,73 @@ function showToast(tier){
 }
 
 // ── LEADERBOARD ──
-function renderLb(){
+async function renderLb(){
   const pills=document.getElementById('lbPills');
   pills.innerHTML=CRITERIA.map(c=>`<button class="pill ${c.id===state.lbCrit?'active':''}" onclick="setLbCrit('${c.id}')">${c.label}</button>`).join('');
-  const cid=state.lbCrit;
-  const sim=state.simData[cid];
-  const ur=state.rankings[cid];
-  const scores=CLUBS.map(cl=>{
-    let sc=sim[cl.id].score, v=sim[cl.id].votes;
-    if(cl.id in ur && ur[cl.id]!=='SKIP'){ sc=Math.round((sc*v+SCORES[ur[cl.id]])/(v+1)); v++; }
-    return{cl,sc,v};
-  }).sort((a,b)=>b.sc-a.sc).slice(0,10);
-  document.getElementById('lbList').innerHTML=scores.map((item,i)=>{
-    const cls=item.sc>=75?'sh':item.sc>=50?'sm':'sl';
-    const logoHtml = item.cl.logo
-      ? `<img src="${item.cl.logo}" alt="${item.cl.name}" onerror="this.parentNode.textContent='${item.cl.initial}'">`
-      : item.cl.initial;
-    const links = [
-      item.cl.maps ? `<a class="lb-link lb-link-maps" href="${item.cl.maps}" target="_blank" rel="noopener">📍 Maps</a>` : '',
-      item.cl.gc   ? `<a class="lb-link lb-link-gc"   href="${item.cl.gc}"   target="_blank" rel="noopener">ℹ Info</a>` : '',
-    ].join('');
-    return`<div class="lb-item">
-      <div class="lb-rank">${i+1}</div>
-      <div class="lb-logo">${logoHtml}</div>
-      <div class="lb-info">
-        <div class="lb-name">${item.cl.name}</div>
-        <div class="lb-meta">${item.cl.area} · ${item.v} votes</div>
-        ${links ? `<div class="lb-links">${links}</div>` : ''}
-      </div>
-      <div class="lb-score-wrap"><div class="lb-score ${cls}">${item.sc}</div><div class="lb-score-lbl">Score</div></div>
+
+  const lbList = document.getElementById('lbList');
+
+  // Show loading state
+  lbList.innerHTML=`<div class="lb-empty">
+    <div style="font-size:1.5rem;margin-bottom:8px">⏳</div>
+    <div>Loading rankings...</div>
+  </div>`;
+
+  try {
+    // Fetch real data from Firestore if available
+    let scores = [];
+    if(typeof loadLeaderboardData === 'function'){
+      const data = await loadLeaderboardData(state.lbCrit, state.lbTime);
+      scores = data
+        .map(row => {
+          const cl = CLUBS.find(c => c.id === row.clubId);
+          if(!cl) return null;
+          return { cl, sc: row.avgScore, v: row.voteCount };
+        })
+        .filter(Boolean)
+        .sort((a,b) => b.sc - a.sc)
+        .slice(0, 10);
+    }
+
+    if(!scores.length){
+      lbList.innerHTML=`<div class="lb-empty">
+        <div style="font-size:2rem;margin-bottom:10px">🏆</div>
+        <div style="margin-bottom:6px">No rankings yet for this timeframe.</div>
+        <div style="font-size:0.78rem;color:var(--grey)">Be the first to rate clubs and claim the top spot.</div>
+      </div>`;
+      return;
+    }
+
+    lbList.innerHTML=scores.map((item,i)=>{
+      const cls=item.sc>=75?'sh':item.sc>=50?'sm':'sl';
+      const logoHtml = item.cl.logo
+        ? `<img src="${item.cl.logo}" alt="${item.cl.name}" onerror="this.parentNode.textContent='${item.cl.initial}'">`
+        : item.cl.initial;
+      const links = [
+        item.cl.maps ? `<a class="lb-link lb-link-maps" href="${item.cl.maps}" target="_blank" rel="noopener">📍 Maps</a>` : '',
+        item.cl.gc   ? `<a class="lb-link lb-link-gc"   href="${item.cl.gc}"   target="_blank" rel="noopener">ℹ Info</a>` : '',
+      ].join('');
+      return`<div class="lb-item">
+        <div class="lb-rank">${i+1}</div>
+        <div class="lb-logo">${logoHtml}</div>
+        <div class="lb-info">
+          <div class="lb-name">${item.cl.name}</div>
+          <div class="lb-meta">${item.cl.area} · ${item.v} vote${item.v===1?'':'s'}</div>
+          ${links ? `<div class="lb-links">${links}</div>` : ''}
+        </div>
+        <div class="lb-score-wrap"><div class="lb-score ${cls}">${item.sc}</div><div class="lb-score-lbl">Score</div></div>
+      </div>`;
+    }).join('');
+
+  } catch(err) {
+    console.error('Leaderboard load failed:', err);
+    // Surface the Firebase index link if that's the error
+    lbList.innerHTML=`<div class="lb-empty">
+      <div style="font-size:1.5rem;margin-bottom:8px">⚠️</div>
+      <div>Could not load rankings.</div>
+      <div style="font-size:0.78rem;color:var(--grey);margin-top:6px">Check the browser console for details.</div>
     </div>`;
-  }).join('');
+  }
 }
 
 function setLbCrit(id){ state.lbCrit=id; renderLb(); }
