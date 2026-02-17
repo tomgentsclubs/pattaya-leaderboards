@@ -4,13 +4,43 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pattaya Leaderboards</title>
+<title>Pattaya Leaderboards — Best Rated Gents Clubs in Pattaya</title>
+<meta name="description" content="Rated by the Community. Trusted by the Scene. Pattaya's only community-voted gents club rankings — Weekly, Monthly and All-Time. Rate clubs on Value, Attractiveness, Service, Decor and more.">
+<meta name="keywords" content="best gents clubs pattaya, pattaya gentlemans club ratings, darkside pattaya clubs, soi chaiyapoon clubs, jomtien gents clubs, pratumnak clubs, pattaya club reviews">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://pattayaleaderboards.com/">
+<!-- Open Graph -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://pattayaleaderboards.com/">
+<meta property="og:title" content="Pattaya Leaderboards — Best Rated Gents Clubs in Pattaya">
+<meta property="og:description" content="Rated by the Community. Trusted by the Scene. Pattaya's only community-voted gents club rankings — Weekly, Monthly and All-Time.">
+<meta property="og:image" content="https://pattayaleaderboards.com/og-image.png">
+<meta property="og:site_name" content="Pattaya Leaderboards">
+<!-- Twitter Card -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Pattaya Leaderboards — Best Rated Gents Clubs">
+<meta name="twitter:description" content="Rated by the Community. Trusted by the Scene. Pattaya's only community-voted gents club rankings.">
+<!-- Structured Data -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Pattaya Leaderboards",
+  "url": "https://pattayaleaderboards.com",
+  "description": "Community-voted rankings of the best gents clubs in Pattaya, Thailand",
+  "publisher": {
+    "@type": "Organization",
+    "name": "Gents Clubs Pattaya",
+    "url": "https://gentsclubs.com"
+  }
+}
+</script>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow+Condensed:wght@400;600;700&family=Barlow:wght@400;500&display=swap" rel="stylesheet">
 <!-- Firebase SDK -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendEmailVerification, updateProfile } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-  import { getFirestore, doc, setDoc, getDoc, collection, query, where, getDocs, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendEmailVerification, updateProfile, updateEmail, updatePassword, reauthenticateWithCredential, EmailAuthProvider, sendPasswordResetEmail, verifyBeforeUpdateEmail } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getFirestore, doc, setDoc, getDoc, collection, query, where, getDocs, serverTimestamp, Timestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
   // ─────────────────────────────────────────────
   // FIREBASE CONFIG — Replace with your own config
@@ -123,50 +153,70 @@
   // ─────────────────────────────────────────────
   // UPDATE AGGREGATE SCORES
   // Stores per-club scores for leaderboard display
+  // Each vote submission creates ONE score document keyed by user+club+criteria+weekId.
+  // Documents are NEVER deleted — leaderboard queries use timestamp ranges instead.
   // ─────────────────────────────────────────────
   async function updateAggregateScores(criteriaId, rankings, weekId) {
     const SCORES_MAP = {S:100, A:80, B:60, C:40, D:20, F:0};
+    const now = Timestamp.now();
+    const monthId = getCurrentMonthId();
     for (const [clubId, tier] of Object.entries(rankings)) {
       if (tier === 'SKIP') continue;
       const scoreVal = SCORES_MAP[tier];
-      const scoreRef = doc(db, 'scores', `${clubId}_${criteriaId}_${weekId}`);
-      const existing = await getDoc(scoreRef);
-      if (existing.exists()) {
-        const d = existing.data();
-        const newTotal = d.totalScore + scoreVal;
-        const newVotes = d.voteCount + 1;
-        await setDoc(scoreRef, { totalScore: newTotal, voteCount: newVotes, avgScore: Math.round(newTotal/newVotes), clubId: Number(clubId), criteriaId, weekId }, { merge: true });
-      } else {
-        await setDoc(scoreRef, { totalScore: scoreVal, voteCount: 1, avgScore: scoreVal, clubId: Number(clubId), criteriaId, weekId });
-      }
+      // One document per user per club per criteria per week — safe to overwrite
+      const scoreRef = doc(db, 'scores', `${state.user.uid}_${clubId}_${criteriaId}_${weekId}`);
+      await setDoc(scoreRef, {
+        userId:     state.user.uid,
+        clubId:     Number(clubId),
+        criteriaId: criteriaId,
+        weekId:     weekId,
+        monthId:    monthId,           // e.g. "2026-02" for monthly window
+        score:      scoreVal,          // this user's score for this club
+        submittedAt: now               // used for rolling 7-day / 30-day windows
+      });
     }
   }
 
   // ─────────────────────────────────────────────
   // LOAD LEADERBOARD DATA FROM FIRESTORE
+  // Weekly  = rolling last 7 days  (never goes to 0 — old votes age out gradually)
+  // Monthly = rolling last 30 days
+  // All-time = everything ever     (never filtered)
   // ─────────────────────────────────────────────
   window.loadLeaderboardData = async function(criteriaId, timeframe) {
-    const weekId = getCurrentWeekId();
     let q;
+    const scoresCol = collection(db, 'scores');
+
     if (timeframe === 'weekly') {
-      q = query(collection(db, 'scores'), where('criteriaId', '==', criteriaId), where('weekId', '==', weekId));
+      const cutoff = Timestamp.fromMillis(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      q = query(scoresCol,
+        where('criteriaId', '==', criteriaId),
+        where('submittedAt', '>=', cutoff)
+      );
+    } else if (timeframe === 'monthly') {
+      const cutoff = Timestamp.fromMillis(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      q = query(scoresCol,
+        where('criteriaId', '==', criteriaId),
+        where('submittedAt', '>=', cutoff)
+      );
     } else {
-      // For monthly / alltime: load all records for this criteria and aggregate
-      q = query(collection(db, 'scores'), where('criteriaId', '==', criteriaId));
+      // All-time: no date filter
+      q = query(scoresCol, where('criteriaId', '==', criteriaId));
     }
+
     const snap = await getDocs(q);
+    // Aggregate: sum scores and count votes per club
     const clubMap = {};
     snap.forEach(d => {
       const data = d.data();
       const cid = data.clubId;
       if (!clubMap[cid]) clubMap[cid] = { totalScore: 0, voteCount: 0 };
-      clubMap[cid].totalScore += data.totalScore;
-      clubMap[cid].voteCount += data.voteCount;
+      clubMap[cid].totalScore += data.score;
+      clubMap[cid].voteCount  += 1;
     });
-    // Convert to array for rendering
     return Object.entries(clubMap).map(([clubId, agg]) => ({
-      clubId: Number(clubId),
-      avgScore: Math.round(agg.totalScore / agg.voteCount),
+      clubId:    Number(clubId),
+      avgScore:  Math.round(agg.totalScore / agg.voteCount),
       voteCount: agg.voteCount
     }));
   };
@@ -238,6 +288,49 @@
     }
   };
 
+  // ── ACCOUNT SETTINGS ──
+  window.firebaseReauth = async function(password) {
+    const user = auth.currentUser;
+    const credential = EmailAuthProvider.credential(user.email, password);
+    await reauthenticateWithCredential(user, credential);
+  };
+
+  window.firebaseChangeUsername = async function(newUsername) {
+    const user = auth.currentUser;
+    await updateProfile(user, { displayName: newUsername });
+    // Update Firestore too
+    const db = getFirestore();
+    await setDoc(doc(db, 'users', user.uid), { username: newUsername }, { merge: true });
+    state.user.username = newUsername;
+    updateHeader();
+  };
+
+  window.firebaseChangePassword = async function(currentPassword, newPassword) {
+    await window.firebaseReauth(currentPassword);
+    await updatePassword(auth.currentUser, newPassword);
+  };
+
+  window.firebaseChangeEmail = async function(currentPassword, newEmail) {
+    await window.firebaseReauth(currentPassword);
+    await verifyBeforeUpdateEmail(auth.currentUser, newEmail);
+  };
+
+  window.firebaseSendPasswordReset = async function() {
+    const user = auth.currentUser;
+    if (user?.email) {
+      await sendPasswordResetEmail(auth, user.email);
+    }
+  };
+
+  window.firebaseDeleteAccount = async function(password) {
+    await window.firebaseReauth(password);
+    const user = auth.currentUser;
+    // Delete Firestore user data
+    const db = getFirestore();
+    await setDoc(doc(db, 'users', user.uid), { deleted: true }, { merge: true });
+    await user.delete();
+  };
+
   // ─────────────────────────────────────────────
   // HELPERS
   // ─────────────────────────────────────────────
@@ -247,6 +340,11 @@
     const diff = now.getDate() - day + (day === 0 ? -6 : 1);
     const monday = new Date(now.setDate(diff));
     return `${monday.getFullYear()}-W${String(Math.ceil(monday.getDate()/7)).padStart(2,'0')}-${monday.getMonth()+1}-${monday.getDate()}`;
+  }
+
+  function getCurrentMonthId() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
   }
 
   function getAuthErrorMessage(code) {
@@ -388,7 +486,7 @@
   /* Progress */
   .vote-prog { margin-bottom:22px; }
   .vp-row { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px; }
-  .vp-count { font-family:'Bebas Neue',sans-serif; font-size:1.2rem; }
+  .vp-pct { font-family:'Bebas Neue',sans-serif; font-size:1.2rem; color:var(--gold); }
   .vp-label { font-family:'Barlow Condensed',sans-serif; font-size:0.75rem; letter-spacing:1px; text-transform:uppercase; color:var(--grey); }
   .vp-track { height:3px; background:var(--border); border-radius:2px; overflow:hidden; }
   .vp-fill { height:100%; background:var(--white); border-radius:2px; transition:width 0.4s ease; }
@@ -417,6 +515,30 @@
   .tf { color:var(--f); border-color:rgba(204,85,85,0.2); } .tf:hover{background:rgba(204,85,85,0.08);border-color:rgba(204,85,85,0.5);}
   .skip-btn { width:100%; padding:13px; background:transparent; border:1px dashed var(--border); border-radius:6px; color:var(--grey); font-family:'Barlow Condensed',sans-serif; font-size:0.85rem; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; cursor:pointer; transition:all 0.2s; }
   .skip-btn:hover { border-color:var(--grey); color:var(--off-white); }
+  .exit-actions { display:flex; flex-direction:column; gap:10px; margin-top:4px; }
+  .exit-btn-continue { padding:14px; background:var(--gold); color:var(--black); border:none; border-radius:6px; font-family:'Barlow Condensed',sans-serif; font-size:1rem; font-weight:700; letter-spacing:1px; text-transform:uppercase; cursor:pointer; transition:all 0.2s; }
+  .exit-btn-continue:hover { background:#e8c84a; }
+  .exit-btn-submit { padding:14px; background:transparent; border:1px solid var(--gold); color:var(--gold); border-radius:6px; font-family:'Barlow Condensed',sans-serif; font-size:1rem; font-weight:700; letter-spacing:1px; text-transform:uppercase; cursor:pointer; transition:all 0.2s; }
+  .exit-btn-submit:hover { background:rgba(201,168,76,0.1); }
+  .exit-btn-discard { padding:14px; background:transparent; border:1px dashed var(--border); color:var(--grey); border-radius:6px; font-family:'Barlow Condensed',sans-serif; font-size:0.9rem; font-weight:600; letter-spacing:1px; text-transform:uppercase; cursor:pointer; transition:all 0.2s; }
+  .exit-btn-discard:hover { border-color:var(--grey); color:var(--off-white); }
+  /* ── SETTINGS MODAL ── */
+  .settings-tabs { display:flex; gap:4px; margin-bottom:20px; border-bottom:1px solid var(--border); padding-bottom:12px; }
+  .settings-tab { background:transparent; border:none; color:var(--grey); font-family:'Barlow Condensed',sans-serif; font-size:0.85rem; font-weight:700; letter-spacing:1px; text-transform:uppercase; padding:7px 14px; border-radius:4px; cursor:pointer; transition:all 0.15s; }
+  .settings-tab:hover { color:var(--off-white); background:var(--border); }
+  .settings-tab.active { background:rgba(201,168,76,0.15); color:var(--gold); }
+  .settings-panel { display:none; }
+  .settings-panel.active { display:block; }
+  .settings-field { margin-bottom:14px; }
+  .settings-field label { display:block; font-family:'Barlow Condensed',sans-serif; font-size:0.75rem; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:var(--grey); margin-bottom:6px; }
+  .settings-field input { width:100%; padding:10px 12px; background:var(--black); border:1px solid var(--border); border-radius:4px; color:var(--off-white); font-family:'Barlow',sans-serif; font-size:0.9rem; box-sizing:border-box; }
+  .settings-field input:focus { outline:none; border-color:var(--gold); }
+  .settings-hint { font-size:0.78rem; color:var(--grey); margin-top:5px; line-height:1.4; }
+  .settings-divider { border:none; border-top:1px solid var(--border); margin:18px 0; }
+  .btn-danger { padding:11px 18px; background:transparent; border:1px solid rgba(224,85,85,0.4); color:#e05555; border-radius:4px; font-family:'Barlow Condensed',sans-serif; font-size:0.9rem; font-weight:700; letter-spacing:1px; text-transform:uppercase; cursor:pointer; transition:all 0.2s; }
+  .btn-danger:hover { background:rgba(224,85,85,0.1); border-color:#e05555; color:#ff7777; }
+  .user-btn { background:transparent; border:1px solid var(--border); color:var(--grey); font-family:'Barlow Condensed',sans-serif; font-size:0.82rem; letter-spacing:1px; text-transform:uppercase; padding:6px 12px; border-radius:4px; cursor:pointer; transition:all 0.2s; display:flex; align-items:center; gap:6px; }
+  .user-btn:hover { border-color:var(--gold); color:var(--gold); }
 
   /* Toast */
   .feedback-toast { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%) scale(0.75); background:rgba(17,17,17,0.95); border:1px solid var(--border); border-radius:10px; padding:16px 34px; font-family:'Bebas Neue',sans-serif; font-size:2.6rem; letter-spacing:4px; opacity:0; pointer-events:none; transition:opacity 0.18s,transform 0.18s; z-index:999; backdrop-filter:blur(8px); }
@@ -447,6 +569,12 @@
   .lb-item:nth-child(1) .lb-rank{color:var(--s)} .lb-item:nth-child(2) .lb-rank{color:var(--off-white)} .lb-item:nth-child(3) .lb-rank{color:var(--gold)}
   .lb-logo { width:42px; height:42px; background:var(--border); border-radius:4px; display:flex; align-items:center; justify-content:center; font-family:'Bebas Neue',sans-serif; font-size:1rem; color:var(--grey); flex-shrink:0; overflow:hidden; }
   .lb-logo img { width:100%; height:100%; object-fit:contain; padding:4px; }
+  .lb-links { display:flex; gap:6px; margin-top:6px; }
+  .lb-link { display:inline-flex; align-items:center; gap:4px; padding:3px 9px; border-radius:20px; font-family:'Barlow Condensed',sans-serif; font-size:0.75rem; font-weight:700; letter-spacing:0.8px; text-transform:uppercase; text-decoration:none; transition:all 0.2s; line-height:1.4; }
+  .lb-link-maps { background:rgba(66,133,244,0.15); color:#6aa3f8; border:1px solid rgba(66,133,244,0.3); }
+  .lb-link-maps:hover { background:rgba(66,133,244,0.28); border-color:rgba(66,133,244,0.6); color:#90bfff; }
+  .lb-link-gc { background:rgba(201,168,76,0.12); color:var(--gold); border:1px solid rgba(201,168,76,0.3); }
+  .lb-link-gc:hover { background:rgba(201,168,76,0.24); border-color:rgba(201,168,76,0.6); }
   .lb-info { flex:1; min-width:0; }
   .lb-name { font-family:'Barlow Condensed',sans-serif; font-size:1rem; font-weight:700; letter-spacing:0.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .lb-meta { font-size:0.72rem; color:var(--grey); margin-top:2px; }
@@ -622,7 +750,7 @@
         </div>
       </div>
       <div class="vote-prog">
-        <div class="vp-row"><span class="vp-label">Progress</span><span class="vp-count" id="vProgCount">0 / 0</span></div>
+        <div class="vp-row"><span class="vp-label">Progress</span><span class="vp-pct" id="vProgPct">0%</span></div>
         <div class="vp-track"><div class="vp-fill" id="vProgFill" style="width:0%"></div></div>
       </div>
       <div class="card-stage" id="cardStage">
@@ -664,7 +792,7 @@
 <div class="screen" id="screen-leaderboard">
   <div class="page-wrap">
     <div class="page-heading">Leaderboards</div>
-    <div class="page-sub">Top 10 clubs ranked by the community. Updated with every submission.</div>
+    <div class="page-sub">Rated by the Community. Trusted by the Scene. Weekly, Monthly and All-Time.</div>
     <div class="lb-pills" id="lbPills"></div>
     <div class="time-tabs">
       <button class="time-tab active" onclick="setTime('weekly',this)">This Week</button>
@@ -679,12 +807,12 @@
 <div class="screen" id="screen-how">
   <div class="page-wrap">
     <div class="page-heading">How It Works</div>
-    <div class="page-sub" style="margin-bottom:28px">Community-powered rankings for Pattaya Gents Clubs</div>
+    <div class="page-sub" style="margin-bottom:28px">Rated by the Community. Trusted by the Scene.</div>
     <div class="how-step"><div class="step-num">01</div><div><div class="step-title">Create a Free Account</div><div class="step-desc">Register with your email to save rankings and contribute to the community leaderboards. Submissions are anonymous.</div></div></div>
     <div class="how-step"><div class="step-num">02</div><div><div class="step-title">Choose a Criteria</div><div class="step-desc">Pick from 6 categories: Value for Money, Naughtiness, Attractiveness of Ladies, Number of Ladies, Decor & Facilities, or Level of Service.</div></div></div>
     <div class="how-step"><div class="step-num">03</div><div><div class="step-title">Rate Each Club</div><div class="step-desc">Club cards appear one at a time. Tap a tier from S (Elite) to F (Poor). Skip any clubs you haven't personally visited.</div></div></div>
-    <div class="how-step"><div class="step-num">04</div><div><div class="step-title">Weekly Reset Every Sunday</div><div class="step-desc">One submission per criteria per week. This keeps the data fresh and reflects current quality, not just historical reputation.</div></div></div>
-    <div class="how-step"><div class="step-num">05</div><div><div class="step-title">View the Leaderboards</div><div class="step-desc">All submissions aggregate into Weekly, Monthly and All-Time Top 10 leaderboards per criteria, updated in real time.</div></div></div>
+    <div class="how-step"><div class="step-num">04</div><div><div class="step-title">Weekly Reset Every Sunday</div><div class="step-desc">You can submit ratings once per week per criteria — your slot resets every Sunday at midnight. Leaderboard scores use a rolling 7-day window, so rankings shift gradually as votes age out rather than dropping to zero on reset day.</div></div></div>
+    <div class="how-step"><div class="step-num">05</div><div><div class="step-title">View the Leaderboards</div><div class="step-desc">All submissions roll up into Weekly, Monthly and All-Time Top 10 leaderboards per criteria. The rolling windows mean scores always reflect real, current opinion — not a club's reputation from two years ago. Weekly keeps things fresh, Monthly smooths out the noise, All-Time shows who consistently leads the scene.</div></div></div>
     <div class="tier-ref">
       <div class="tier-ref-lbl">Tier Scoring Reference</div>
       <div class="tier-ref-row"><span class="tier-badge" style="color:var(--s)">S</span><span class="tier-ref-desc">Elite — Absolute best in Pattaya</span><span class="tier-ref-pts">100 pts</span></div>
@@ -724,24 +852,34 @@
         match /users/{userId} {
           allow read, write: if request.auth != null && request.auth.uid == userId;
         }
-        // Weekly submission records: user can read/write their own
+        // Weekly submission tracker: user can read/write their own
+        // Doc ID format: {userId}_{weekId}
         match /weekly_submissions/{docId} {
           allow read, write: if request.auth != null && docId.matches(request.auth.uid + '_.*');
         }
-        // Vote records: user can write their own, anyone can read
+        // Raw vote records: user can write their own, anyone can read
+        // Doc ID format: {userId}_{criteriaId}_{weekId}
         match /votes/{docId} {
           allow read: if true;
           allow write: if request.auth != null && request.resource.data.userId == request.auth.uid;
         }
-        // Aggregated scores: anyone can read, auth users can write
+        // Individual user scores per club per week: user writes their own, anyone reads
+        // Doc ID format: {userId}_{clubId}_{criteriaId}_{weekId}
+        // Rolling window queries use submittedAt timestamp — docs are NEVER deleted
         match /scores/{docId} {
           allow read: if true;
-          allow write: if request.auth != null;
+          allow write: if request.auth != null && request.resource.data.userId == request.auth.uid;
         }
       }
     }
     ─────────────────────────────────────────────────────
- 7. Deploy this HTML file to GitHub Pages
+ 7. Create Firestore Composite Index (required for leaderboard queries):
+    In Firebase Console → Firestore → Indexes → Add Index:
+      Collection: scores
+      Fields: criteriaId (Ascending), submittedAt (Ascending)
+    Without this, the weekly/monthly leaderboard queries will fail.
+
+ 8. Deploy this HTML file to GitHub Pages
 
  Until Firebase is configured, the site runs in DEMO MODE:
  auth works locally in-memory (no real persistence).
@@ -757,33 +895,97 @@ const CRITERIA=[
 ];
 
 const CLUBS=[
-  {id:1, name:'Windmill Club',   area:'Walking Street',initial:'W'},
-  {id:2, name:'Baccara',         area:'Walking Street',initial:'B'},
-  {id:3, name:'Superbabies',     area:'Walking Street',initial:'S'},
-  {id:4, name:'Shark Club',      area:'Walking Street',initial:'S'},
-  {id:5, name:'Play Skool',      area:'Walking Street',initial:'P'},
-  {id:6, name:'Tiger Bar',       area:'Walking Street',initial:'T'},
-  {id:7, name:'Secrets Club',    area:'Soi 6',         initial:'S'},
-  {id:8, name:'Crystal Club',    area:'North Pattaya', initial:'C'},
-  {id:9, name:'Angelwitch',      area:'Walking Street',initial:'A'},
-  {id:10,name:'Billboard Club',  area:'Walking Street',initial:'B'},
-  {id:11,name:'Myst Club',       area:'Beach Road',    initial:'M'},
-  {id:12,name:'Penthouse Club',  area:'Soi Buakhao',   initial:'P'},
-  {id:13,name:'Hollywood Club',  area:'Walking Street',initial:'H'},
-  {id:14,name:'Kittens Club',    area:'Soi 6',         initial:'K'},
-  {id:15,name:'Pattaya Pussycat',area:'Beach Road',    initial:'P'},
-  {id:16,name:'Carousel',        area:'Walking Street',initial:'C'},
-  {id:17,name:'Casino Club',     area:'North Pattaya', initial:'C'},
-  {id:18,name:'Diamond Club',    area:'Walking Street',initial:'D'},
-  {id:19,name:'Obsessions',      area:'Soi Buakhao',   initial:'O'},
-  {id:20,name:'Showcase Club',   area:'Walking Street',initial:'S'},
+  {id:1 , name:'007 Club', area:'Soi Bonkot 8', initial:'0', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_ce9d972754724481a9d79aa160880f8e~mv2.jpg', maps:'https://goo.gl/maps/tZmCDrE52hCHpWBp9', gc:'https://gentsclubs.com/gc/007-club'},
+  {id:2 , name:'Amsterdam', area:'Soi Bonkot 8', initial:'A', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_bf256499db50434a9a5dbc9eb0438db2~mv2.jpg', maps:'https://goo.gl/maps/NRE3W8PJmfbJ96vHA', gc:'https://gentsclubs.com/gc/amsterdam'},
+  {id:3 , name:'Aqua-Deymie', area:'The Darkside', initial:'A', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_5c5160f0cef84f35be5e7c11da108319~mv2.png', maps:'https://goo.gl/maps/EZcCwvutMmHJ9SYG9', gc:'https://gentsclubs.com/gc/aqua-deymie'},
+  {id:4 , name:'Azure Fabrice', area:'The Darkside', initial:'A', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_0a6d21bc91894a8a897fc1cf7038a05e~mv2.jpg', maps:'https://goo.gl/maps/ULNy62UjEMCjTkR77', gc:'https://gentsclubs.com/gc/azure-fabrice'},
+  {id:5 , name:'Babylon', area:'Soi Bonkot 5', initial:'B', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_4116cfd4af324d1f927c8b84fde48667~mv2.jpg', maps:'https://goo.gl/maps/83bkXUsLDYgP7YsX8', gc:'https://gentsclubs.com/gc/babylon'},
+  {id:6 , name:'Babylon Paradise', area:'3rd Road', initial:'B', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_4116cfd4af324d1f927c8b84fde48667~mv2.jpg', maps:'https://goo.gl/maps/Cm1uvcua7uHubbLK6', gc:'https://gentsclubs.com/gc/babylon-paradise'},
+  {id:7 , name:'Bada Bing', area:'Soi Bonkot 8', initial:'B', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_d09dafbd306f4106abd376ada3218171~mv2.jpg', maps:'https://goo.gl/maps/RSyNjyjNk3sJZNubA', gc:'https://gentsclubs.com/gc/bada-bing'},
+  {id:8 , name:'Bradleys', area:'Soi Chaiyapoon', initial:'B', featured:true, logo:'https://static.wixstatic.com/media/5b8e36_29e11fa058334721a2a5f51dbf87b2c8~mv2.jpg', maps:'https://maps.app.goo.gl/VJNanqgD2ceWv1B57', gc:'https://gentsclubs.com/gc/bradleys'},
+  {id:9 , name:'Bunny Bar', area:'The Darkside', initial:'B', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_fcb9bd404edd4855807f09668ee74fe0~mv2.png', maps:'https://goo.gl/maps/XLk12zK5gXBQA2gt7', gc:'https://gentsclubs.com/gc/bunny-bar'},
+  {id:10, name:'Butterfly Club', area:'The Darkside', initial:'B', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_d7898790383b4f2ebd18738e1a88f3dd~mv2.png', maps:'https://maps.app.goo.gl/qNBkrv23YY5RGdQcA', gc:'https://gentsclubs.com/gc/butterfly-club'},
+  {id:11, name:'Buzzin Lounge', area:'Soi Chaiyapoon', initial:'B', featured:true, logo:'https://static.wixstatic.com/media/a7bc28_7de9dcde3de943f49ba222cee38a6954~mv2.jpg', maps:'https://goo.gl/maps/6FZGyVMPmMjn3qCa6', gc:'https://gentsclubs.com/gc/buzzin-lounge'},
+  {id:12, name:'Carre Blanc', area:'Soi Bonkot 8', initial:'C', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_8973e0028b644da1aeea21d327d8f7cf~mv2.jpg', maps:'https://goo.gl/maps/of2dz5MnLhngEVVj6', gc:'https://gentsclubs.com/gc/carre-blanc'},
+  {id:13, name:'CatFlaps', area:'Pratumnak', initial:'C', featured:true, logo:'https://static.wixstatic.com/media/a7bc28_e3b41b2f840546518ff7496d025ea080~mv2.png', maps:'https://goo.gl/maps/VqxCXUdsZWhe7W549', gc:'https://gentsclubs.com/gc/catflaps'},
+  {id:14, name:'Cleo\'s Hideout', area:'Soi Boomerang', initial:'C', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_5b3ef4d7989143888631ee4ccb30b4c1~mv2.jpeg', maps:'https://maps.app.goo.gl/vb5ZTFkAAFrJKnLs9', gc:'https://gentsclubs.com/gc/cleos-hideout'},
+  {id:15, name:'Club 555', area:'Soi Boomerang', initial:'C', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_d8318e0f1a0f4bd08c917f3d43e06d29~mv2.jpg', maps:'https://maps.app.goo.gl/CYExvbjDPmvm23h8A', gc:'https://gentsclubs.com/gc/club-555'},
+  {id:16, name:'Club Fate', area:'Soi Boomerang', initial:'C', featured:true, logo:'https://static.wixstatic.com/media/a7bc28_5a8db80763924a0baf79f1aabe7b8ce7~mv2.png', maps:'https://goo.gl/maps/3PRHmFBHfJheTDgK7', gc:'https://gentsclubs.com/gc/club-fate'},
+  {id:17, name:'Club Secret', area:'Soi Bonkot 8', initial:'C', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_c3c436a364b7462a8fd344e57d1d81d6~mv2.jpeg', maps:'https://goo.gl/maps/oXTS1URVdpTttdep9', gc:'https://gentsclubs.com/gc/club-secret'},
+  {id:18, name:'Club Sin', area:'Soi Bonkot 8', initial:'C', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_9803f152e334432a8ed3199b0afd1615~mv2.jpg', maps:'https://goo.gl/maps/Aja9eFyB65Jw3zYB8', gc:'https://gentsclubs.com/gc/club-sin'},
+  {id:19, name:'Cobra Lounge', area:'Pratumnak', initial:'C', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_67a3dda096604d0ea879f8b95ffdffd3~mv2.jpg', maps:'https://goo.gl/maps/6WY2BBwPxDrRke4D7', gc:'https://gentsclubs.com/gc/cobra-lounge'},
+  {id:20, name:'Cosy Beach Club', area:'Pratumnak', initial:'C', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_e34a0d9f08cc4c30b2aa35d54365d4ec~mv2.jpg', maps:'https://goo.gl/maps/BrJtVWicHzmmSPhS6', gc:'https://gentsclubs.com/gc/cosy-beach-club'},
+  {id:21, name:'Dao Bar', area:'The Darkside', initial:'D', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_cfc1bb98cd53443cbff4ff97882c45ae~mv2.jpg', maps:'https://goo.gl/maps/sqJLMsy8Zc7NE3F98', gc:'https://gentsclubs.com/gc/dao-bar'},
+  {id:22, name:'Darkside Gentlemans Club', area:'The Darkside', initial:'D', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_fe66c948eb5549168f6f21df3aafbadf~mv2.jpg', maps:'https://goo.gl/maps/87TGpjFC9PJagktk8', gc:'https://gentsclubs.com/gc/darkside-gentlemans-club'},
+  {id:23, name:'Darksiders Genesis Bar', area:'The Darkside', initial:'D', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_4b831d7f60d249f48e5322c55bc07cfb~mv2.jpg', maps:'https://goo.gl/maps/zDbiUFcbkJPhkEb46', gc:'https://gentsclubs.com/gc/darksiders-genesis-bar'},
+  {id:24, name:'Excite Club', area:'Soi Excite', initial:'E', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_0717b447684d41888522dcfe83c15c2a~mv2.jpg', maps:'https://goo.gl/maps/P8ZZsirFprtB3Uk69', gc:'https://gentsclubs.com/gc/excite-club'},
+  {id:25, name:'Free Willy', area:'Soi Kophai', initial:'F', featured:true, logo:'https://static.wixstatic.com/media/a7bc28_aeb9d92babe0464a9b81d9cdd9beaf10~mv2.png', maps:'https://goo.gl/maps/gtFG8mxfZpXteEo59', gc:'https://gentsclubs.com/gc/freewilly'},
+  {id:26, name:'Heaven Above', area:'Soi Boomerang', initial:'H', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_d3de19fdf62f47fbb87f510b2405bd86~mv2.jpg', maps:'https://goo.gl/maps/tAcHVMciENSXMsJj7', gc:'https://gentsclubs.com/gc/heaven-above'},
+  {id:27, name:'High Rollers', area:'Soi Chaiyapoon', initial:'H', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_147d3350982945629c2d911099be4738~mv2.jpg', maps:'https://goo.gl/maps/nwTzkrtccpidXHE86', gc:'https://gentsclubs.com/gc/high-rollers'},
+  {id:28, name:'Hunny Lounge', area:'Soi Honey', initial:'H', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_7c6c0cf1a8aa45d384b705c4e09e4dde~mv2.jpg', maps:'https://goo.gl/maps/uvEDpW2oVHZe3VwVA', gc:'https://gentsclubs.com/gc/hunny-lounge'},
+  {id:29, name:'Jade House', area:'Jomtien', initial:'J', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_511f1c2e932a407d8c5ea90be06b9fb3~mv2.jpg', maps:'https://goo.gl/maps/srnaNAY9A6CHbDUi7', gc:'https://gentsclubs.com/gc/jade-house'},
+  {id:30, name:'Juicy Lucy', area:'Soi Bonkot 8', initial:'J', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_d3b8d72dc6d94cfa9aeba3cb4b4a9c4b~mv2.jpg', maps:'https://maps.app.goo.gl/nm8zTzc3QcNVAU6a6', gc:'https://gentsclubs.com/gc/juicy-lucy'},
+  {id:31, name:'Kings Club', area:'3rd Road', initial:'K', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_4e64da9ffc6346c5a4a81371a8373296~mv2.jpg', maps:'https://goo.gl/maps/7pr7s8NMLfvc47A46', gc:'https://gentsclubs.com/gc/kings-club'},
+  {id:32, name:'Kinnaree', area:'Pratumnak', initial:'K', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_eb864aa59eda4ca0b43a7ef3d6aaacb2~mv2.jpg', maps:'https://goo.gl/maps/Gn4tAGKeMEYH9NtU6', gc:'https://gentsclubs.com/gc/kinnaree'},
+  {id:33, name:'Kissx', area:'The Darkside', initial:'K', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_cadd324994434430822cd58e25d9431b~mv2.png', maps:'https://maps.app.goo.gl/Vx9sMdiChTtVAWov9', gc:'https://gentsclubs.com/gc/kissx'},
+  {id:34, name:'KitCat', area:'Jomtien', initial:'K', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_b234247985a44f09ab37d68a08700e77~mv2.png', maps:'https://goo.gl/maps/MTiLMsjrekVAy6VH9', gc:'https://gentsclubs.com/gc/kitcat'},
+  {id:35, name:'La Poste', area:'Soi Lengkee', initial:'L', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_ae44b5eb506a47599b0e50e64ac84339~mv2.jpg', maps:'https://goo.gl/maps/zwYrmUQVXyonMBaq5', gc:'https://gentsclubs.com/gc/la-poste'},
+  {id:36, name:'Legs Eleven', area:'Soi Honey', initial:'L', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_4dda25fa309c4d0a9f08c70169fee621~mv2.jpg', maps:'https://goo.gl/maps/Fo93NvmEjE9YfbxP8', gc:'https://gentsclubs.com/gc/legs-eleven'},
+  {id:37, name:'MClub', area:'3rd Road', initial:'M', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_7d89691fafa64431ba73d503fd7bf9f0~mv2.jpg', maps:'https://goo.gl/maps/CB27VcPDunbcvEgL6', gc:'https://gentsclubs.com/gc/mclub'},
+  {id:38, name:'Madams', area:'3rd Road', initial:'M', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_efcd755a6bfe4d298223c81379db6792~mv2.png', maps:'https://maps.app.goo.gl/Xt8Vu4K1ZVhbsFe76', gc:'https://gentsclubs.com/gc/madams'},
+  {id:39, name:'Maggie Mays', area:'Soi Chaiyapoon', initial:'M', featured:true, logo:'https://static.wixstatic.com/media/a7bc28_dc421c93e4a24a4d897a3c671eaa2a83~mv2.png', maps:'https://goo.gl/maps/eczsfsYtYn3E3eGM6', gc:'https://gentsclubs.com/gc/maggie-mays'},
+  {id:40, name:'Maggie Mays Darkside', area:'The Darkside', initial:'M', featured:true, logo:'https://static.wixstatic.com/media/5b8e36_7f68b38db1a64f5cb610a4572d834852~mv2.png', maps:'https://maps.app.goo.gl/3CgEqiXQEftd9Ued6', gc:'https://gentsclubs.com/gc/maggie-mays-darkside'},
+  {id:41, name:'Maggie Mays Jomtien', area:'Jomtien', initial:'M', featured:true, logo:'https://static.wixstatic.com/media/5b8e36_fb2c7a57977c46ad82307d6675b1aa94~mv2.jpg', maps:'https://maps.app.goo.gl/6UpwrHN3ALj5Diit7', gc:'https://gentsclubs.com/gc/maggie-mays-jomtien'},
+  {id:42, name:'Maggie Mays Resort', area:'Jomtien', initial:'M', featured:true, logo:'https://static.wixstatic.com/media/5b8e36_f4a50be4d088491f8abb12387363523c~mv2.jpg', maps:'https://maps.app.goo.gl/NLZfwsTgAq25pjZQA', gc:'https://gentsclubs.com/gc/maggie-mays-resort'},
+  {id:43, name:'Malibu Club', area:'Soi Bonkot 5', initial:'M', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_5b2d501a91784053bea2b95901641e36~mv2.jpg', maps:'https://goo.gl/maps/83bkXUsLDYgP7YsX8', gc:'https://gentsclubs.com/gc/malibu-club'},
+  {id:44, name:'Manuya', area:'Soi Bonkot 8', initial:'M', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_3d12b9f947b44ad493c173fc59ab1baa~mv2.png', maps:'https://goo.gl/maps/dE2aNHuDqe6Yb2xQ8', gc:'https://gentsclubs.com/gc/manuya'},
+  {id:45, name:'Mirror Club', area:'Naklua', initial:'M', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_f3605af7fc7c4394ab4aff9a028903b3~mv2.jpg', maps:'https://maps.app.goo.gl/i5rvY6XH8b3wRR8T9', gc:'https://gentsclubs.com/gc/mirror-club'},
+  {id:46, name:'Monkey House', area:'Jomtien', initial:'M', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_c9609d8af1fa4ac5b2752ec9d64720c3~mv2.jpg', maps:'https://maps.app.goo.gl/NLuM5vMw3rNbQLJ99', gc:'https://gentsclubs.com/gc/monkey-house'},
+  {id:47, name:'New Secret Bar', area:'The Darkside', initial:'N', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_c27ee62cc5e04a7c99c9c4c93d6c59d1~mv2.png', maps:'https://goo.gl/maps/7y7FDdQdXVFY8BRE6', gc:'https://gentsclubs.com/gc/new-secret-bar'},
+  {id:48, name:'Nirvana', area:'Jomtien', initial:'N', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_f08c9ced1d034aea90df132e5c19351d~mv2.png', maps:'https://goo.gl/maps/H9Du9aNroLmKttYs7', gc:'https://gentsclubs.com/gc/nirvana'},
+  {id:49, name:'Octopussy Club', area:'Soi Boomerang', initial:'O', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_c24555ab46b04b519a79b222b05351ee~mv2.jpg', maps:'https://goo.gl/maps/HjtkcKwtjbnW5xC89', gc:'https://gentsclubs.com/gc/octopussy-club'},
+  {id:50, name:'Olivia\'s Club', area:'Soi Excite', initial:'O', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_18f5d39fadc347e9b366f18c79f99316~mv2.jpg', maps:'https://goo.gl/maps/4Hfv6jD4vqHAWwjq7', gc:'https://gentsclubs.com/gc/olivias-club'},
+  {id:51, name:'Pacha Pattaya', area:'The Darkside', initial:'P', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_490f9f4b0a7841659d0083f3271e47ff~mv2.png', maps:'https://goo.gl/maps/sCDA4rxQUq4MUAu26', gc:'https://gentsclubs.com/gc/pacha-pattaya'},
+  {id:52, name:'Paradise Bar', area:'The Darkside', initial:'P', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_afab2db8b11b4d9e8bcf08a2d6da2ac2~mv2.jpg', maps:'https://maps.app.goo.gl/bsFDYFa7Ktc5TiNJA', gc:'https://gentsclubs.com/gc/paradise-bar'},
+  {id:53, name:'Passion', area:'Jomtien', initial:'P', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_4e52b12cb97a44498488baa31d11e323~mv2.jpg', maps:'https://goo.gl/maps/bTZFyxMRNfZmSvvy5', gc:'https://gentsclubs.com/gc/passion'},
+  {id:54, name:'Pinky\'s', area:'Soi Bonkot', initial:'P', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_c83b072153584594bead335ab7583a69~mv2.jpg', maps:'https://maps.app.goo.gl/uvhzMiSrvsB6Km7J7', gc:'https://gentsclubs.com/gc/pinkys'},
+  {id:55, name:'Pirates', area:'Soi Bonkot 8', initial:'P', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_30533b7a37d34dc683733aa16949e725~mv2.jpg', maps:'https://goo.gl/maps/yo9GRhxYdgHjJNwR6', gc:'https://gentsclubs.com/gc/pirates'},
+  {id:56, name:'Purple Club', area:'Soi Bonkot 8', initial:'P', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_626bf097fb28453885e48e377c2a2629~mv2.jpg', maps:'https://goo.gl/maps/QsUKLFxEd5ey8wRY9', gc:'https://gentsclubs.com/gc/purple-club'},
+  {id:57, name:'Pussy Galore', area:'Jomtien', initial:'P', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_045a934f49e2466a82e0b6a1f3f4b4c8~mv2.jpg', maps:'https://goo.gl/maps/yBxAjzEY74LNfm1k6', gc:'https://gentsclubs.com/gc/pussy-galore'},
+  {id:58, name:'Red Hot and Blue', area:'Soi Buakhao', initial:'R', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_8e13970b49d04392824c3529e61b6fef~mv2.jpeg', maps:'https://goo.gl/maps/hM6ez6vDyjeJXWr57', gc:'https://gentsclubs.com/gc/red-hot-and-blue'},
+  {id:59, name:'Red Lantern', area:'Soi Boomerang', initial:'R', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_9b01e964ba7a44ffba9109b46525b10d~mv2.jpg', maps:'https://maps.app.goo.gl/1btoFx2K7ik3fjV59', gc:'https://gentsclubs.com/gc/red-lantern'},
+  {id:60, name:'Secret Lounge', area:'Soi Excite', initial:'S', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_5e19d46b215941619b49adaa09c9a43b~mv2.png', maps:'https://goo.gl/maps/y6YtZ7RamaX7XtAn7', gc:'https://gentsclubs.com/gc/secret-lounge'},
+  {id:61, name:'Telephone Bar', area:'Soi Batman', initial:'T', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_8fd76887489c458db53f74e34526528a~mv2.jpg', maps:'https://goo.gl/maps/2N2K5m17C8bpP5dR8', gc:'https://gentsclubs.com/gc/telephone-bar'},
+  {id:62, name:'The Badger', area:'The Darkside', initial:'T', featured:true, logo:'https://static.wixstatic.com/media/5b8e36_df0114fc04a5462681bb3377fbf78ba0~mv2.jpg', maps:'https://maps.app.goo.gl/ySFQYkGXZnXAA4yo9', gc:'https://gentsclubs.com/gc/the-badger'},
+  {id:63, name:'The Bird Cage', area:'The Darkside', initial:'T', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_b56c1b91512a4ffd93b0d91a6d0838be~mv2.jpg', maps:'https://goo.gl/maps/YeMcVGGp4DnRdF5F7', gc:'https://gentsclubs.com/gc/the-bird-cage'},
+  {id:64, name:'The Brass House', area:'Jomtien', initial:'T', featured:true, logo:'https://static.wixstatic.com/media/a7bc28_1f8bb9f4c981494782e699e00dbf219d~mv2.png', maps:'https://maps.app.goo.gl/4iGFNUHk9zg3VMeR8', gc:'https://gentsclubs.com/gc/the-brass-house'},
+  {id:65, name:'The Camel Toe', area:'Soi Kophai', initial:'T', featured:true, logo:'https://static.wixstatic.com/media/a7bc28_5b763161eb1347d09d253af7b260f3a0~mv2.png', maps:'https://goo.gl/maps/yyTT1aGTrSivaqND9', gc:'https://gentsclubs.com/gc/the-camel-toe'},
+  {id:66, name:'The Cat House', area:'Soi Boomerang', initial:'T', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_a00920cf686549bd928a6b3342575b7a~mv2.jpg', maps:'https://maps.app.goo.gl/4qYVSv5PEEC2PTjn8', gc:'https://gentsclubs.com/gc/the-cat-house'},
+  {id:67, name:'The Den', area:'Soi Chaiyapoon', initial:'T', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_7b5eb7651bda4263b94f61db9756bcdb~mv2.png', maps:'https://goo.gl/maps/fJkhhykMtEgQVx8h8', gc:'https://gentsclubs.com/gc/the-den'},
+  {id:68, name:'The Factory', area:'Soi Bonkot 8', initial:'T', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_6f78c75e5e5e4bc1bbb2cdbb82c269e6~mv2.jpg', maps:'https://maps.app.goo.gl/M5XebwVzKTa2j1KY8', gc:'https://gentsclubs.com/gc/the-factory'},
+  {id:69, name:'The Naughty Club', area:'Soi Boomerang', initial:'T', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_0d52193cc7354e3b92a67e67fb9e7e33~mv2.jpg', maps:'https://goo.gl/maps/G5UU9Ky6TDaMuPoM9', gc:'https://gentsclubs.com/gc/the-naughty-club'},
+  {id:70, name:'The Pussy Cat Club', area:'The Darkside', initial:'T', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_554e18e98aae494dac19209a0056a2cf~mv2.png', maps:'https://goo.gl/maps/STttotVPfxf6ZWRD8', gc:'https://gentsclubs.com/gc/the-pussy-cat-club'},
+  {id:71, name:'Throbin Wood', area:'Jomtien', initial:'T', featured:true, logo:'https://static.wixstatic.com/media/5b8e36_1876c237f37e47fe8ab9ee32a2d9313c~mv2.png', maps:'https://maps.app.goo.gl/HPDatwJyyLh5LtgEA', gc:'https://gentsclubs.com/gc/throbin-wood'},
+  {id:72, name:'Tiger Club', area:'Soi Bonkot 8', initial:'T', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_8865cbb36e854784b951886b10fef47e~mv2.jpg', maps:'https://maps.app.goo.gl/9nNkGMaGEHYK1gr9A', gc:'https://gentsclubs.com/gc/tiger-club'},
+  {id:73, name:'Venom', area:'Pratumnak', initial:'V', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_6b5dfa8e51dc46c4ab96fec1adbf89e7~mv2.jpg', maps:'https://goo.gl/maps/6WY2BBwPxDrRke4D7', gc:'https://gentsclubs.com/gc/venom'}
 ];
 
 const SCORES={S:100,A:80,B:60,C:40,D:20,F:0};
 
+// ── CLUB ORDER: featured first (shuffled), then non-featured (shuffled) ──
+function shuffle(arr){ return arr.sort(()=>Math.random()-0.5); }
+function buildClubOrder(){
+  const featured = shuffle(CLUBS.filter(c=>c.featured));
+  const rest     = shuffle(CLUBS.filter(c=>!c.featured));
+  return [...featured, ...rest];
+}
+
+// Minimum clubs to rate before "submit early" option appears (about 50%)
+
+
 const state={
   user:null, activeCrit:null,
-  rankings:{}, weeklyDone:{},
+  rankings:{}, weeklyDone:{}, clubOrder:{},
   simData:{}, lbCrit:'value', lbTime:'weekly'
 };
 
@@ -805,7 +1007,48 @@ function showScreen(id,tab){
 
 // ── CRITERIA HOME ──
 function goHome(){
-  state.activeCrit=null;
+  const cid = state.activeCrit;
+  // If no active criteria or already fully done, just go home
+  if(!cid || state.weeklyDone[cid]){
+    _doGoHome();
+    return;
+  }
+  const total = CLUBS.length;
+  const done = total - unranked(cid).length;
+  // If they haven't rated anything yet, go straight back — nothing to lose
+  if(done === 0){
+    _doGoHome();
+    return;
+  }
+  // Otherwise show the exit warning
+  const pct = Math.round((done / total) * 100);
+  const crit = CRITERIA.find(x=>x.id===cid);
+  document.getElementById('exitModalSub').textContent =
+    `You've rated ${done} of ${total} clubs (${pct}%) for "${crit.label}". Your progress will be lost if you go back without submitting.`;
+  document.getElementById('exitModal').classList.add('show');
+}
+
+function closeExitModal(){
+  document.getElementById('exitModal').classList.remove('show');
+}
+
+function exitAndSubmit(){
+  closeExitModal();
+  const cid = state.activeCrit;
+  completeVoting(cid);
+}
+
+function exitAndDiscard(){
+  closeExitModal();
+  const cid = state.activeCrit;
+  // Clear any ratings done so far for this criteria
+  state.rankings[cid] = {};
+  delete state.clubOrder[cid];
+  _doGoHome();
+}
+
+function _doGoHome(){
+  state.activeCrit = null;
   document.getElementById('criteriaHome').style.display='block';
   document.getElementById('votePage').style.display='none';
   renderGrid();
@@ -850,6 +1093,10 @@ function renderGrid(){
 // ── VOTING ──
 function startVoting(cid){
   state.activeCrit=cid;
+  // Build a fresh featured-first shuffled order for this session
+  if(!state.clubOrder[cid]){
+    state.clubOrder[cid] = buildClubOrder();
+  }
   const c=CRITERIA.find(x=>x.id===cid);
   document.getElementById('criteriaHome').style.display='none';
   document.getElementById('votePage').style.display='block';
@@ -861,32 +1108,48 @@ function startVoting(cid){
   renderVoteCard();
 }
 
-function unranked(cid){ return CLUBS.filter(cl=>!(cl.id in state.rankings[cid])); }
+function unranked(cid){
+  const order = state.clubOrder[cid] || CLUBS;
+  return order.filter(cl=>!(cl.id in state.rankings[cid]));
+}
 
 function renderVoteCard(){
   const cid=state.activeCrit;
   const rem=unranked(cid);
   const total=CLUBS.length;
   const done=total-rem.length;
-  document.getElementById('vProgCount').textContent=`${done} / ${total}`;
-  document.getElementById('vProgFill').style.width=`${(done/total)*100}%`;
+  const pct=Math.round((done/total)*100);
+  document.getElementById('vProgPct').textContent=`${pct}%`;
+  document.getElementById('vProgFill').style.width=`${pct}%`;
+
   if(!rem.length){
-    state.weeklyDone[cid]=true;
-    document.getElementById('clubCard').style.display='none';
-    document.getElementById('tierSection').style.display='none';
-    document.getElementById('voteComplete').classList.add('show');
-    // Save to Firestore if user is logged in and verified
-    if(state.user && state.user.verified && typeof saveSubmissionToFirestore === 'function'){
-      saveSubmissionToFirestore(cid, state.rankings[cid]).catch(err => console.error('Save failed:', err));
-    }
+    completeVoting(cid);
     return;
   }
   const cl=rem[0];
   document.getElementById('cardNum').textContent=`${done+1} of ${total}`;
   document.getElementById('clubName').textContent=cl.name;
   document.getElementById('clubArea').textContent=cl.area;
-  document.getElementById('clubLogo').textContent=cl.initial;
+  // Show logo image if available, otherwise show initial
+  const logoBox = document.getElementById('clubLogo');
+  if(cl.logo){
+    logoBox.innerHTML=`<img src="${cl.logo}" alt="${cl.name}" onerror="this.parentNode.innerHTML='${cl.initial}'">`;
+  } else {
+    logoBox.textContent=cl.initial;
+  }
 }
+
+function completeVoting(cid){
+  state.weeklyDone[cid]=true;
+  document.getElementById('clubCard').style.display='none';
+  document.getElementById('tierSection').style.display='none';
+  document.getElementById('voteComplete').classList.add('show');
+  // Save to Firestore if user is logged in and verified
+  if(state.user && state.user.verified && typeof saveSubmissionToFirestore === 'function'){
+    saveSubmissionToFirestore(cid, state.rankings[cid]).catch(err => console.error('Save failed:', err));
+  }
+}
+
 
 function assign(tier){
   const cid=state.activeCrit;
@@ -928,10 +1191,21 @@ function renderLb(){
   }).sort((a,b)=>b.sc-a.sc).slice(0,10);
   document.getElementById('lbList').innerHTML=scores.map((item,i)=>{
     const cls=item.sc>=75?'sh':item.sc>=50?'sm':'sl';
+    const logoHtml = item.cl.logo
+      ? `<img src="${item.cl.logo}" alt="${item.cl.name}" onerror="this.parentNode.textContent='${item.cl.initial}'">`
+      : item.cl.initial;
+    const links = [
+      item.cl.maps ? `<a class="lb-link lb-link-maps" href="${item.cl.maps}" target="_blank" rel="noopener">📍 Maps</a>` : '',
+      item.cl.gc   ? `<a class="lb-link lb-link-gc"   href="${item.cl.gc}"   target="_blank" rel="noopener">ℹ Info</a>` : '',
+    ].join('');
     return`<div class="lb-item">
       <div class="lb-rank">${i+1}</div>
-      <div class="lb-logo">${item.cl.initial}</div>
-      <div class="lb-info"><div class="lb-name">${item.cl.name}</div><div class="lb-meta">${item.cl.area} · ${item.v} votes</div></div>
+      <div class="lb-logo">${logoHtml}</div>
+      <div class="lb-info">
+        <div class="lb-name">${item.cl.name}</div>
+        <div class="lb-meta">${item.cl.area} · ${item.v} votes</div>
+        ${links ? `<div class="lb-links">${links}</div>` : ''}
+      </div>
       <div class="lb-score-wrap"><div class="lb-score ${cls}">${item.sc}</div><div class="lb-score-lbl">Score</div></div>
     </div>`;
   }).join('');
@@ -1009,14 +1283,110 @@ function logout(){
 
 function updateHeader(){
   if(state.user){
-    const verifiedBadge = state.user.verified ? '' : ' <span style="color:#FFB347;font-size:0.7rem;">(unverified)</span>';
+    const verifiedBadge = state.user.verified ? '✓' : '⚠';
+    const badgeColor = state.user.verified ? 'color:var(--gold)' : 'color:#FFB347';
     document.getElementById('headerRight').innerHTML=
-      `<span style="font-family:'Barlow Condensed',sans-serif;font-size:0.82rem;letter-spacing:1px;color:var(--grey);text-transform:uppercase">${state.user.username}${verifiedBadge}</span>
+      `<button class="user-btn" onclick="openSettings()">
+         <span style="${badgeColor};font-size:0.7rem">${verifiedBadge}</span>
+         ${state.user.username}
+         <span style="font-size:0.65rem;opacity:0.5">▾</span>
+       </button>
        <button class="btn-login" onclick="logout()">Sign Out</button>`;
   } else {
     document.getElementById('headerRight').innerHTML=
       `<button class="btn-login" onclick="openModal('login')">Sign In</button>
        <button class="btn-primary" onclick="openModal('register')">Register</button>`;
+  }
+}
+
+// ── SETTINGS ──
+function openSettings(){
+  document.getElementById('settingsModal').classList.add('show');
+  // Populate current values
+  document.getElementById('setUsername').value = state.user.username || '';
+  document.getElementById('setEmail').value = state.user.email || '';
+  settingsTab('profile');
+}
+function closeSettings(){
+  document.getElementById('settingsModal').classList.remove('show');
+  // Clear all password fields
+  ['setCurrentPw','setNewPw','setConfirmPw','setEmailPw','setNewEmail','setDeletePw'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.value='';
+  });
+  clearSettingsMsg();
+}
+function settingsTab(tab){
+  document.querySelectorAll('.settings-tab').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+  document.querySelectorAll('.settings-panel').forEach(p=>p.classList.toggle('active', p.dataset.panel===tab));
+  clearSettingsMsg();
+}
+function showSettingsMsg(msg, isError=false){
+  const el = document.getElementById('settingsMsg');
+  el.textContent = msg;
+  el.style.color = isError ? '#e05555' : 'var(--gold)';
+  el.style.display = 'block';
+}
+function clearSettingsMsg(){ document.getElementById('settingsMsg').style.display='none'; }
+
+async function saveUsername(){
+  const val = document.getElementById('setUsername').value.trim();
+  if(!val) return showSettingsMsg('Username cannot be empty.', true);
+  try {
+    await window.firebaseChangeUsername(val);
+    showSettingsMsg('Username updated!');
+  } catch(e){ showSettingsMsg(e.message, true); }
+}
+
+async function savePassword(){
+  const cur = document.getElementById('setCurrentPw').value;
+  const nw  = document.getElementById('setNewPw').value;
+  const cf  = document.getElementById('setConfirmPw').value;
+  if(!cur || !nw) return showSettingsMsg('Please fill in all fields.', true);
+  if(nw !== cf)  return showSettingsMsg('New passwords do not match.', true);
+  if(nw.length < 6) return showSettingsMsg('Password must be at least 6 characters.', true);
+  try {
+    await window.firebaseChangePassword(cur, nw);
+    document.getElementById('setCurrentPw').value='';
+    document.getElementById('setNewPw').value='';
+    document.getElementById('setConfirmPw').value='';
+    showSettingsMsg('Password updated successfully!');
+  } catch(e){
+    showSettingsMsg(e.code==='auth/wrong-password'?'Current password is incorrect.':e.message, true);
+  }
+}
+
+async function saveEmail(){
+  const pw  = document.getElementById('setEmailPw').value;
+  const em  = document.getElementById('setNewEmail').value.trim();
+  if(!pw || !em) return showSettingsMsg('Please fill in all fields.', true);
+  try {
+    await window.firebaseChangeEmail(pw, em);
+    document.getElementById('setEmailPw').value='';
+    document.getElementById('setNewEmail').value='';
+    showSettingsMsg('Verification sent to '+em+'. Click the link to confirm your new email.');
+  } catch(e){
+    showSettingsMsg(e.code==='auth/wrong-password'?'Password is incorrect.':e.message, true);
+  }
+}
+
+async function sendPasswordReset(){
+  try {
+    await window.firebaseSendPasswordReset();
+    showSettingsMsg('Password reset email sent to '+state.user.email);
+  } catch(e){ showSettingsMsg(e.message, true); }
+}
+
+async function deleteAccount(){
+  const pw = document.getElementById('setDeletePw').value;
+  if(!pw) return showSettingsMsg('Please enter your password to confirm.', true);
+  if(!confirm('Are you absolutely sure? This cannot be undone.')) return;
+  try {
+    await window.firebaseDeleteAccount(pw);
+    closeSettings();
+    showToastMsg('Account deleted.');
+  } catch(e){
+    showSettingsMsg(e.code==='auth/wrong-password'?'Password is incorrect.':e.message, true);
   }
 }
 
@@ -1027,5 +1397,100 @@ renderGrid();
 updateTimer();
 renderLb();
 </script>
+<!-- Exit warning modal -->
+<div class="modal-overlay" id="exitModal">
+  <div class="modal">
+    <div class="modal-title">Hold On!</div>
+    <div class="modal-sub" id="exitModalSub"></div>
+    <p style="font-size:0.88rem;color:var(--off-white);margin:16px 0 8px;">What would you like to do?</p>
+    <div class="exit-actions">
+      <button class="exit-btn-continue" onclick="closeExitModal()">↩ Keep Rating</button>
+      <button class="exit-btn-submit" onclick="exitAndSubmit()">✓ Submit What I've Done</button>
+      <button class="exit-btn-discard" onclick="exitAndDiscard()">✕ Discard &amp; Go Back</button>
+    </div>
+  </div>
+</div>
+
+<!-- Settings modal -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal" style="max-width:420px">
+    <button class="modal-close" onclick="closeSettings()">×</button>
+    <div class="modal-title">Account Settings</div>
+    <div id="settingsMsg" style="display:none;font-size:0.85rem;margin-bottom:12px;padding:8px 10px;background:rgba(0,0,0,0.3);border-radius:4px;"></div>
+
+    <div class="settings-tabs">
+      <button class="settings-tab active" data-tab="profile" onclick="settingsTab('profile')">Profile</button>
+      <button class="settings-tab" data-tab="password" onclick="settingsTab('password')">Password</button>
+      <button class="settings-tab" data-tab="email" onclick="settingsTab('email')">Email</button>
+      <button class="settings-tab" data-tab="danger" onclick="settingsTab('danger')">Account</button>
+    </div>
+
+    <!-- Profile -->
+    <div class="settings-panel active" data-panel="profile">
+      <div class="settings-field">
+        <label>Username</label>
+        <input type="text" id="setUsername" placeholder="Your display name" maxlength="30">
+      </div>
+      <div class="settings-field">
+        <label>Email</label>
+        <input type="email" id="setEmail" disabled style="opacity:0.5;cursor:not-allowed">
+        <div class="settings-hint">To change your email address, use the Email tab.</div>
+      </div>
+      <div style="margin-top:16px">
+        <button class="btn-primary" style="width:100%" onclick="saveUsername()">Save Username</button>
+      </div>
+    </div>
+
+    <!-- Password -->
+    <div class="settings-panel" data-panel="password">
+      <div class="settings-field">
+        <label>Current Password</label>
+        <input type="password" id="setCurrentPw" placeholder="Enter current password">
+      </div>
+      <div class="settings-field">
+        <label>New Password</label>
+        <input type="password" id="setNewPw" placeholder="At least 6 characters">
+      </div>
+      <div class="settings-field">
+        <label>Confirm New Password</label>
+        <input type="password" id="setConfirmPw" placeholder="Repeat new password">
+      </div>
+      <div style="margin-top:16px;display:flex;gap:8px">
+        <button class="btn-primary" style="flex:1" onclick="savePassword()">Update Password</button>
+        <button class="btn-outline" onclick="sendPasswordReset()" title="Send reset link to your email">Reset via Email</button>
+      </div>
+    </div>
+
+    <!-- Email -->
+    <div class="settings-panel" data-panel="email">
+      <div class="settings-hint" style="margin-bottom:14px">A verification link will be sent to your new address. Your email won't change until you click it.</div>
+      <div class="settings-field">
+        <label>New Email Address</label>
+        <input type="email" id="setNewEmail" placeholder="new@example.com">
+      </div>
+      <div class="settings-field">
+        <label>Current Password</label>
+        <input type="password" id="setEmailPw" placeholder="Confirm your identity">
+      </div>
+      <div style="margin-top:16px">
+        <button class="btn-primary" style="width:100%" onclick="saveEmail()">Send Verification</button>
+      </div>
+    </div>
+
+    <!-- Account / Danger zone -->
+    <div class="settings-panel" data-panel="danger">
+      <div class="settings-hint" style="margin-bottom:16px">Deleting your account is permanent. All your ratings and data will be removed and cannot be recovered.</div>
+      <div class="settings-field">
+        <label>Confirm Password</label>
+        <input type="password" id="setDeletePw" placeholder="Enter password to confirm">
+      </div>
+      <div style="margin-top:16px">
+        <button class="btn-danger" style="width:100%" onclick="deleteAccount()">Delete My Account</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>document.getElementById('settingsModal').addEventListener('click',function(e){ if(e.target===this) closeSettings(); });</script>
+
 </body>
 </html>
