@@ -223,7 +223,30 @@
   };
 
   // ─────────────────────────────────────────────
-  // FIREBASE AUTH ACTIONS (exposed to global scope)
+  // LOAD ALL 6 CRITERIA SCORES FOR ONE CLUB
+  // Used by the club detail modal
+  // ─────────────────────────────────────────────
+  window.loadClubDetail = async function(clubId, timeframe) {
+    const scoresCol = collection(db, 'scores');
+    let cutoff = null;
+    if (timeframe === 'weekly')  cutoff = Timestamp.fromMillis(Date.now() - 7  * 24 * 60 * 60 * 1000);
+    if (timeframe === 'monthly') cutoff = Timestamp.fromMillis(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    let q = cutoff
+      ? query(scoresCol, where('clubId', '==', clubId), where('submittedAt', '>=', cutoff))
+      : query(scoresCol, where('clubId', '==', clubId));
+
+    const snap = await getDocs(q);
+    const critMap = {};
+    snap.forEach(d => {
+      const data = d.data();
+      const cid = data.criteriaId;
+      if (!critMap[cid]) critMap[cid] = { totalScore: 0, voteCount: 0 };
+      critMap[cid].totalScore += data.score;
+      critMap[cid].voteCount  += 1;
+    });
+    return critMap; // { value: { totalScore, voteCount }, naughty: {...}, ... }
+  };
   // ─────────────────────────────────────────────
   window.firebaseRegister = async function(username, email, password) {
     try {
@@ -565,6 +588,22 @@
   .time-tab.active { background:var(--white); color:var(--black); }
   .lb-list { display:flex; flex-direction:column; gap:8px; }
   .lb-empty { text-align:center; padding:48px 20px; color:var(--grey); font-family:'Barlow Condensed',sans-serif; font-size:0.95rem; letter-spacing:0.5px; }
+
+  /* CLUB DETAIL MODAL */
+  .club-modal-header { display:flex; align-items:center; gap:14px; margin-bottom:20px; padding-bottom:16px; border-bottom:1px solid var(--border); }
+  .club-modal-logo { width:56px; height:56px; background:var(--border); border-radius:6px; display:flex; align-items:center; justify-content:center; font-family:'Bebas Neue',sans-serif; font-size:1.4rem; color:var(--grey); flex-shrink:0; overflow:hidden; }
+  .club-modal-logo img { width:100%; height:100%; object-fit:contain; padding:4px; }
+  .club-modal-name { font-family:'Bebas Neue',sans-serif; font-size:1.6rem; letter-spacing:2px; line-height:1; }
+  .club-modal-area { font-family:'Barlow Condensed',sans-serif; font-size:0.72rem; letter-spacing:2px; text-transform:uppercase; color:var(--grey); margin-top:3px; }
+  .club-modal-links { display:flex; gap:8px; margin-top:6px; }
+  .criteria-scores { display:flex; flex-direction:column; gap:10px; margin-bottom:20px; }
+  .criteria-score-row { display:flex; align-items:center; gap:12px; }
+  .cs-label { font-family:'Barlow Condensed',sans-serif; font-size:0.82rem; font-weight:600; letter-spacing:0.5px; color:var(--off-white); flex:1; }
+  .cs-bar-wrap { flex:2; height:6px; background:var(--border); border-radius:3px; overflow:hidden; }
+  .cs-bar { height:100%; border-radius:3px; transition:width 0.4s ease; }
+  .cs-score { font-family:'Bebas Neue',sans-serif; font-size:1.1rem; width:36px; text-align:right; flex-shrink:0; }
+  .cs-votes { font-size:0.68rem; color:var(--grey); width:44px; text-align:right; flex-shrink:0; }
+  .club-modal-empty { text-align:center; padding:24px 0; color:var(--grey); font-size:0.88rem; }
   .lb-item { display:flex; align-items:center; gap:14px; background:var(--card-bg); border:1px solid var(--border); border-radius:6px; padding:13px 16px; transition:border-color 0.2s; }
   .lb-item:hover { border-color:var(--light-grey); }
   .lb-rank { font-family:'Bebas Neue',sans-serif; font-size:1.7rem; color:var(--grey); width:30px; text-align:center; flex-shrink:0; }
@@ -802,6 +841,16 @@
       <button class="time-tab" onclick="setTime('alltime',this)">All Time</button>
     </div>
     <div class="lb-list" id="lbList"></div>
+  </div>
+</div>
+
+<!-- ═══ CLUB DETAIL MODAL ═══ -->
+<div class="modal-overlay" id="clubModal">
+  <div class="modal" style="max-width:420px">
+    <button class="modal-close" onclick="closeClubModal()">×</button>
+    <div id="clubModalContent">
+      <!-- populated by openClubModal() -->
+    </div>
   </div>
 </div>
 
@@ -1224,7 +1273,7 @@ async function renderLb(){
         item.cl.maps ? `<a class="lb-link lb-link-maps" href="${item.cl.maps}" target="_blank" rel="noopener">📍 Maps</a>` : '',
         item.cl.gc   ? `<a class="lb-link lb-link-gc"   href="${item.cl.gc}"   target="_blank" rel="noopener">ℹ Info</a>` : '',
       ].join('');
-      return`<div class="lb-item">
+      return`<div class="lb-item" onclick="openClubModal(${item.cl.id})" style="cursor:pointer">
         <div class="lb-rank">${i+1}</div>
         <div class="lb-logo">${logoHtml}</div>
         <div class="lb-info">
@@ -1249,6 +1298,81 @@ async function renderLb(){
 
 function setLbCrit(id){ state.lbCrit=id; renderLb(); }
 function setTime(t,el){ state.lbTime=t; document.querySelectorAll('.time-tab').forEach(x=>x.classList.remove('active')); el.classList.add('active'); renderLb(); }
+
+// ── CLUB DETAIL MODAL ──
+async function openClubModal(clubId) {
+  const cl = CLUBS.find(c => c.id === clubId);
+  if (!cl) return;
+
+  const modal = document.getElementById('clubModal');
+  const content = document.getElementById('clubModalContent');
+  modal.classList.add('show');
+
+  // Logo
+  const logoHtml = cl.logo
+    ? `<img src="${cl.logo}" alt="${cl.name}" onerror="this.parentNode.innerHTML='${cl.initial}'">`
+    : cl.initial;
+
+  // External links
+  const links = [
+    cl.maps ? `<a class="lb-link lb-link-maps" href="${cl.maps}" target="_blank" rel="noopener">📍 Maps</a>` : '',
+    cl.gc   ? `<a class="lb-link lb-link-gc"   href="${cl.gc}"   target="_blank" rel="noopener">ℹ Info</a>` : '',
+  ].filter(Boolean).join('');
+
+  // Show header immediately, scores loading
+  content.innerHTML = `
+    <div class="club-modal-header">
+      <div class="club-modal-logo">${logoHtml}</div>
+      <div>
+        <div class="club-modal-name">${cl.name}</div>
+        <div class="club-modal-area">${cl.area}</div>
+        ${links ? `<div class="club-modal-links">${links}</div>` : ''}
+      </div>
+    </div>
+    <div id="clubModalScores">
+      <div class="club-modal-empty">⏳ Loading scores...</div>
+    </div>`;
+
+  try {
+    const critMap = await loadClubDetail(clubId, state.lbTime);
+    const scoresEl = document.getElementById('clubModalScores');
+
+    const rows = CRITERIA.map(c => {
+      const data = critMap[c.id];
+      if (!data || data.voteCount === 0) {
+        return `<div class="criteria-score-row">
+          <div class="cs-label">${c.label}</div>
+          <div class="cs-bar-wrap"><div class="cs-bar" style="width:0%;background:var(--border)"></div></div>
+          <div class="cs-score" style="color:var(--grey)">—</div>
+          <div class="cs-votes">no votes</div>
+        </div>`;
+      }
+      const avg = Math.round(data.totalScore / data.voteCount);
+      const barColour = avg >= 75 ? 'var(--a)' : avg >= 50 ? 'var(--c)' : 'var(--d)';
+      const scoreColour = avg >= 75 ? 'sh' : avg >= 50 ? 'sm' : 'sl';
+      return `<div class="criteria-score-row">
+        <div class="cs-label">${c.label}</div>
+        <div class="cs-bar-wrap"><div class="cs-bar" style="width:${avg}%;background:${barColour}"></div></div>
+        <div class="cs-score ${scoreColour}">${avg}</div>
+        <div class="cs-votes">${data.voteCount} vote${data.voteCount===1?'':'s'}</div>
+      </div>`;
+    });
+
+    const hasAnyData = CRITERIA.some(c => critMap[c.id]?.voteCount > 0);
+    scoresEl.innerHTML = hasAnyData
+      ? `<div class="criteria-scores">${rows.join('')}</div>`
+      : `<div class="club-modal-empty">No ratings yet for this club.<br><span style="font-size:0.78rem">Be the first to rate it.</span></div>`;
+
+  } catch(err) {
+    console.error('Club detail load failed:', err);
+    document.getElementById('clubModalScores').innerHTML =
+      `<div class="club-modal-empty">Could not load scores.</div>`;
+  }
+}
+
+function closeClubModal() {
+  document.getElementById('clubModal').classList.remove('show');
+}
 
 // ── TIMER ──
 function updateTimer(){
@@ -1427,6 +1551,7 @@ async function deleteAccount(){
 }
 
 document.getElementById('authModal').addEventListener('click',function(e){ if(e.target===this) closeModal(); });
+document.getElementById('clubModal').addEventListener('click',function(e){ if(e.target===this) closeClubModal(); });
 
 // ── INIT ──
 renderGrid();
