@@ -211,6 +211,8 @@
     snap.forEach(d => {
       const data = d.data();
       const cid = data.clubId;
+      // Skip documents missing the score field (old data model)
+      if (typeof data.score !== 'number') return;
       if (!clubMap[cid]) clubMap[cid] = { totalScore: 0, voteCount: 0 };
       clubMap[cid].totalScore += data.score;
       clubMap[cid].voteCount  += 1;
