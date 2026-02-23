@@ -883,70 +883,12 @@
 </div>
 
 <script>
-/*
- ═══════════════════════════════════════════════════════
- FIREBASE SETUP INSTRUCTIONS
- ═══════════════════════════════════════════════════════
- Before this site works with real auth, complete these steps:
 
- 1. Go to https://console.firebase.google.com
- 2. Click "Add project" → name it "pattaya-leaderboards"
- 3. Once created: Project Settings (gear icon) → Your Apps → Add Web App
- 4. Copy the firebaseConfig object and paste it into the
-    <script type="module"> section above (replace the placeholder values)
-
- 5. In Firebase Console → Authentication → Sign-in method:
-    Enable "Email/Password"
-
- 6. In Firebase Console → Firestore Database:
-    Click "Create database" → Start in production mode
-    Add these Security Rules:
-    ─────────────────────────────────────────────────────
-    rules_version = '2';
-    service cloud.firestore {
-      match /databases/{database}/documents {
-        // Users can read/write their own data only
-        match /users/{userId} {
-          allow read, write: if request.auth != null && request.auth.uid == userId;
-        }
-        // Weekly submission tracker: user can read/write their own
-        // Doc ID format: {userId}_{weekId}
-        match /weekly_submissions/{docId} {
-          allow read, write: if request.auth != null && docId.matches(request.auth.uid + '_.*');
-        }
-        // Raw vote records: user can write their own, anyone can read
-        // Doc ID format: {userId}_{criteriaId}_{weekId}
-        match /votes/{docId} {
-          allow read: if true;
-          allow write: if request.auth != null && request.resource.data.userId == request.auth.uid;
-        }
-        // Individual user scores per club per week: user writes their own, anyone reads
-        // Doc ID format: {userId}_{clubId}_{criteriaId}_{weekId}
-        // Rolling window queries use submittedAt timestamp — docs are NEVER deleted
-        match /scores/{docId} {
-          allow read: if true;
-          allow write: if request.auth != null && request.resource.data.userId == request.auth.uid;
-        }
-      }
-    }
-    ─────────────────────────────────────────────────────
- 7. Create Firestore Composite Index (required for leaderboard queries):
-    In Firebase Console → Firestore → Indexes → Add Index:
-      Collection: scores
-      Fields: criteriaId (Ascending), submittedAt (Ascending)
-    Without this, the weekly/monthly leaderboard queries will fail.
-
- 8. Deploy this HTML file to GitHub Pages
-
- Until Firebase is configured, the site runs in DEMO MODE:
- auth works locally in-memory (no real persistence).
- ═══════════════════════════════════════════════════════
-*/
 const CRITERIA=[
   {id:'value',  label:'Value for Money',    icon:'💰',desc:'How far does your money go?'},
   {id:'naughty',label:'Naughtiness',        icon:'🔥',desc:'How wild does it get?'},
   {id:'attract',label:'Attractiveness',     icon:'⭐',desc:'How attractive are the ladies?'},
-  {id:'ladies', label:'Number of Ladies',   icon:'👯',desc:'How many ladies are on stage?'},
+  {id:'ladies', label:'Number of Ladies',   icon:'👯',desc:'How many ladies are there?'},
   {id:'decor',  label:'Decor & Facilities', icon:'🏛',desc:'Quality of the venue and facilities'},
   {id:'service',label:'Level of Service',   icon:'🍸',desc:'Staff attitude and service quality'},
 ];
