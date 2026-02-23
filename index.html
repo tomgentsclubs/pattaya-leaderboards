@@ -5,8 +5,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pattaya Leaderboards — Best Rated Gents Clubs in Pattaya</title>
-<meta name="description" content="Rated by the Community. Trusted by the Scene. Pattaya's only community-voted gents club rankings — Weekly, Monthly and All-Time. Rate clubs on Value, Attractiveness, Service, Decor and more.">
-<meta name="keywords" content="best gents clubs pattaya, pattaya gentlemans club ratings, darkside pattaya clubs, soi chaiyapoon clubs, jomtien gents clubs, pratumnak clubs, pattaya club reviews">
+<meta name="description" content="Rated by the Community. Trusted by the Scene. Pattaya's only community-voted Gents Club rankings — Weekly, Monthly and All-Time. Rate Gents Clubs on Value, Attractiveness, Service, Decor and more.">
+<meta name="keywords" content="best gents clubs pattaya, pattaya gentlemans club ratings, darkside pattaya clubs, soi chaiyapoon clubs, jomtien gents clubs, pratumnak gents clubs, pattaya gents club reviews">
 <meta name="robots" content="index, follow">
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="canonical" href="https://pattayaleaderboards.com/">
@@ -14,13 +14,13 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://pattayaleaderboards.com/">
 <meta property="og:title" content="Pattaya Leaderboards — Best Rated Gents Clubs in Pattaya">
-<meta property="og:description" content="Rated by the Community. Trusted by the Scene. Pattaya's only community-voted gents club rankings — Weekly, Monthly and All-Time.">
+<meta property="og:description" content="Rated by the Community. Trusted by the Scene. Pattaya's only community-voted Gents Club rankings — Weekly, Monthly and All-Time.">
 <meta property="og:image" content="https://pattayaleaderboards.com/og-image.png">
 <meta property="og:site_name" content="Pattaya Leaderboards">
 <!-- Twitter Card -->
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Pattaya Leaderboards — Best Rated Gents Clubs">
-<meta name="twitter:description" content="Rated by the Community. Trusted by the Scene. Pattaya's only community-voted gents club rankings.">
+<meta name="twitter:description" content="Rated by the Community. Trusted by the Scene. Pattaya's only community-voted Gents Club rankings.">
 <!-- Structured Data -->
 <script type="application/ld+json">
 {
@@ -28,7 +28,7 @@
   "@type": "WebSite",
   "name": "Pattaya Leaderboards",
   "url": "https://pattayaleaderboards.com",
-  "description": "Community-voted rankings of the best gents clubs in Pattaya, Thailand",
+  "description": "Community-voted rankings of the best Gents Clubs in Pattaya, Thailand",
   "publisher": {
     "@type": "Organization",
     "name": "Gents Clubs Pattaya",
@@ -307,7 +307,7 @@
         await loadWeeklyStatus();
         updateHeader();
         renderGrid();
-        showToastMsg('Email verified! You can now rate clubs.');
+        showToastMsg('Email verified! You can now rate the Gents Clubs.');
       } else {
         showToastMsg("Email not verified yet — check your inbox.");
       }
@@ -768,7 +768,7 @@
   <!-- CRITERIA HOME -->
   <div id="criteriaHome">
     <div class="page-wrap">
-      <div class="page-heading">Rate Clubs</div>
+      <div class="page-heading">Rate Gents Clubs</div>
       <div class="page-sub">Select a criteria to begin. Each criteria can be rated once per week — resets every Sunday at midnight.</div>
       <div class="reset-notice"><div class="reset-dot"></div><span id="resetTimer">Calculating reset time...</span></div>
       <div class="guest-notice" id="guestNotice">
@@ -816,7 +816,7 @@
         </div>
       </div>
       <div id="tierSection">
-        <div class="tier-label">Tap a Tier to Rate This Club</div>
+        <div class="tier-label">Tap a Tier to Rate This Gents Club</div>
         <div class="tier-grid">
           <button class="tier-btn ts" onclick="assign('S')">S<span>Elite</span></button>
           <button class="tier-btn ta" onclick="assign('A')">A<span>Great</span></button>
@@ -825,7 +825,7 @@
           <button class="tier-btn td" onclick="assign('D')">D<span>Below Avg</span></button>
           <button class="tier-btn tf" onclick="assign('F')">F<span>Poor</span></button>
         </div>
-        <button class="skip-btn" onclick="assign('SKIP')">Skip — Haven't Visited This Club</button>
+        <button class="skip-btn" onclick="assign('SKIP')">Skip — Haven't Visited This Gents Club</button>
       </div>
     </div>
   </div>
@@ -863,7 +863,7 @@
     <div class="page-sub" style="margin-bottom:28px">Rated by the Community. Trusted by the Scene.</div>
     <div class="how-step"><div class="step-num">01</div><div><div class="step-title">Create a Free Account</div><div class="step-desc">Register with your email to save rankings and contribute to the community leaderboards. Submissions are anonymous.</div></div></div>
     <div class="how-step"><div class="step-num">02</div><div><div class="step-title">Choose a Criteria</div><div class="step-desc">Pick from 6 categories: Value for Money, Naughtiness, Attractiveness of Ladies, Number of Ladies, Decor & Facilities, or Level of Service.</div></div></div>
-    <div class="how-step"><div class="step-num">03</div><div><div class="step-title">Rate Each Club</div><div class="step-desc">Club cards appear one at a time. Tap a tier from S (Elite) to F (Poor). Skip any clubs you haven't personally visited.</div></div></div>
+    <div class="how-step"><div class="step-num">03</div><div><div class="step-title">Rate Each Gents Club</div><div class="step-desc">Gents Club cards appear one at a time. Tap a tier from S (Elite) to F (Poor). Skip any clubs you haven't personally visited.</div></div></div>
     <div class="how-step"><div class="step-num">04</div><div><div class="step-title">Weekly Reset Every Sunday</div><div class="step-desc">You can submit ratings once per week per criteria — your slot resets every Sunday at midnight. Leaderboard scores use a rolling 7-day window, so rankings shift gradually as votes age out rather than dropping to zero on reset day.</div></div></div>
     <div class="how-step"><div class="step-num">05</div><div><div class="step-title">View the Leaderboards</div><div class="step-desc">All submissions roll up into Weekly, Monthly and All-Time Top 10 leaderboards per criteria. The rolling windows mean scores always reflect real, current opinion — not a club's reputation from two years ago. Weekly keeps things fresh, Monthly smooths out the noise, All-Time shows who consistently leads the scene.</div></div></div>
     <div class="tier-ref">
