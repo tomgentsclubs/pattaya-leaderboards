@@ -453,6 +453,18 @@
 
   // Expose to global scope
   window.loadClubsFromFirestore = loadClubsFromFirestore;
+  
+  // Initialize app once Firebase module is loaded
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      if (window.initApp) window.initApp();
+    });
+  } else {
+    // DOM already loaded, call immediately
+    setTimeout(() => {
+      if (window.initApp) window.initApp();
+    }, 0);
+  }
 </script>
 <style>
   :root {
@@ -1460,7 +1472,7 @@ document.getElementById('authModal').addEventListener('click',function(e){ if(e.
 document.getElementById('clubModal').addEventListener('click',function(e){ if(e.target===this) closeClubModal(); });
 
 // ── INIT ──
-async function initApp() {
+window.initApp = async function() {
   console.log('Initializing app...');
   
   // Load clubs from Firestore
@@ -1476,10 +1488,9 @@ async function initApp() {
   renderGrid();
   updateTimer();
   renderLb();
-}
+};
 
-// Start the app
-initApp();
+// initApp will be called by Firebase module when ready
 </script>
 <!-- Exit warning modal -->
 <div class="modal-overlay" id="exitModal">
