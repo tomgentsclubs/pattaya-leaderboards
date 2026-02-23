@@ -448,6 +448,7 @@
   .logo-area { display:flex; align-items:center; gap:10px; cursor:pointer; }
   .logo-area img { height:32px; width:auto; }
   .site-title { font-family:'Bebas Neue',sans-serif; font-size:1.5rem; letter-spacing:2px; }
+  .site-subtitle { font-family:'Barlow Condensed',sans-serif; font-size:0.65rem; letter-spacing:1px; text-transform:uppercase; color:var(--grey); margin-top:-2px; }
   .header-right { display:flex; align-items:center; gap:10px; }
   .btn-login { background:transparent; border:1px solid var(--border); color:var(--grey); padding:7px 14px; font-family:'Barlow Condensed',sans-serif; font-size:0.8rem; letter-spacing:1px; text-transform:uppercase; cursor:pointer; transition:all 0.2s; border-radius:2px; }
   .btn-login:hover { border-color:var(--white); color:var(--white); }
@@ -747,7 +748,10 @@
 <header class="site-header">
   <div class="logo-area" onclick="goHome()">
     <img src="logo.png" alt="Pattaya Leaderboards" style="height:32px;width:auto;">
-    <span class="site-title">Pattaya Gents Clubs Leaderboards</span>
+    <div>
+      <div class="site-title">Pattaya Leaderboards</div>
+      <div class="site-subtitle">By GentsClubs.com</div>
+    </div>
   </div>
   <div class="header-right" id="headerRight">
     <button class="btn-login" onclick="openModal('login')">Sign In</button>
