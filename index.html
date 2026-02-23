@@ -1,4 +1,5 @@
 
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -893,81 +894,7 @@ const CRITERIA=[
   {id:'service',label:'Level of Service',   icon:'🍸',desc:'Staff attitude and service quality'},
 ];
 
-const CLUBS=[
-  {id:1 , name:'007 Club', area:'Soi Bonkot 8', initial:'0', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_ce9d972754724481a9d79aa160880f8e~mv2.jpg', maps:'https://goo.gl/maps/tZmCDrE52hCHpWBp9', gc:'https://gentsclubs.com/gc/007-club'},
-  {id:2 , name:'Amsterdam', area:'Soi Bonkot 8', initial:'A', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_bf256499db50434a9a5dbc9eb0438db2~mv2.jpg', maps:'https://goo.gl/maps/NRE3W8PJmfbJ96vHA', gc:'https://gentsclubs.com/gc/amsterdam'},
-  {id:3 , name:'Aqua-Deymie', area:'The Darkside', initial:'A', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_5c5160f0cef84f35be5e7c11da108319~mv2.png', maps:'https://goo.gl/maps/EZcCwvutMmHJ9SYG9', gc:'https://gentsclubs.com/gc/aqua-deymie'},
-  {id:4 , name:'Azure Fabrice', area:'The Darkside', initial:'A', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_0a6d21bc91894a8a897fc1cf7038a05e~mv2.jpg', maps:'https://goo.gl/maps/ULNy62UjEMCjTkR77', gc:'https://gentsclubs.com/gc/azure-fabrice'},
-  {id:5 , name:'Babylon', area:'Soi Bonkot 5', initial:'B', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_4116cfd4af324d1f927c8b84fde48667~mv2.jpg', maps:'https://goo.gl/maps/83bkXUsLDYgP7YsX8', gc:'https://gentsclubs.com/gc/babylon'},
-  {id:6 , name:'Babylon Paradise', area:'3rd Road', initial:'B', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_4116cfd4af324d1f927c8b84fde48667~mv2.jpg', maps:'https://goo.gl/maps/Cm1uvcua7uHubbLK6', gc:'https://gentsclubs.com/gc/babylon-paradise'},
-  {id:7 , name:'Bada Bing', area:'Soi Bonkot 8', initial:'B', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_d09dafbd306f4106abd376ada3218171~mv2.jpg', maps:'https://goo.gl/maps/RSyNjyjNk3sJZNubA', gc:'https://gentsclubs.com/gc/bada-bing'},
-  {id:8 , name:'Bradleys', area:'Soi Chaiyapoon', initial:'B', featured:true, logo:'https://static.wixstatic.com/media/5b8e36_29e11fa058334721a2a5f51dbf87b2c8~mv2.jpg', maps:'https://maps.app.goo.gl/VJNanqgD2ceWv1B57', gc:'https://gentsclubs.com/gc/bradleys'},
-  {id:9 , name:'Bunny Bar', area:'The Darkside', initial:'B', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_fcb9bd404edd4855807f09668ee74fe0~mv2.png', maps:'https://goo.gl/maps/XLk12zK5gXBQA2gt7', gc:'https://gentsclubs.com/gc/bunny-bar'},
-  {id:10, name:'Butterfly Club', area:'The Darkside', initial:'B', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_d7898790383b4f2ebd18738e1a88f3dd~mv2.png', maps:'https://maps.app.goo.gl/qNBkrv23YY5RGdQcA', gc:'https://gentsclubs.com/gc/butterfly-club'},
-  {id:11, name:'Buzzin Lounge', area:'Soi Chaiyapoon', initial:'B', featured:true, logo:'https://static.wixstatic.com/media/a7bc28_7de9dcde3de943f49ba222cee38a6954~mv2.jpg', maps:'https://goo.gl/maps/6FZGyVMPmMjn3qCa6', gc:'https://gentsclubs.com/gc/buzzin-lounge'},
-  {id:12, name:'Carre Blanc', area:'Soi Bonkot 8', initial:'C', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_8973e0028b644da1aeea21d327d8f7cf~mv2.jpg', maps:'https://goo.gl/maps/of2dz5MnLhngEVVj6', gc:'https://gentsclubs.com/gc/carre-blanc'},
-  {id:13, name:'CatFlaps', area:'Pratumnak', initial:'C', featured:true, logo:'https://static.wixstatic.com/media/a7bc28_e3b41b2f840546518ff7496d025ea080~mv2.png', maps:'https://goo.gl/maps/VqxCXUdsZWhe7W549', gc:'https://gentsclubs.com/gc/catflaps'},
-  {id:14, name:'Cleo\'s Hideout', area:'Soi Boomerang', initial:'C', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_5b3ef4d7989143888631ee4ccb30b4c1~mv2.jpeg', maps:'https://maps.app.goo.gl/vb5ZTFkAAFrJKnLs9', gc:'https://gentsclubs.com/gc/cleos-hideout'},
-  {id:15, name:'Club 555', area:'Soi Boomerang', initial:'C', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_d8318e0f1a0f4bd08c917f3d43e06d29~mv2.jpg', maps:'https://maps.app.goo.gl/CYExvbjDPmvm23h8A', gc:'https://gentsclubs.com/gc/club-555'},
-  {id:16, name:'Club Fate', area:'Soi Boomerang', initial:'C', featured:true, logo:'https://static.wixstatic.com/media/a7bc28_5a8db80763924a0baf79f1aabe7b8ce7~mv2.png', maps:'https://goo.gl/maps/3PRHmFBHfJheTDgK7', gc:'https://gentsclubs.com/gc/club-fate'},
-  {id:17, name:'Club Secret', area:'Soi Bonkot 8', initial:'C', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_c3c436a364b7462a8fd344e57d1d81d6~mv2.jpeg', maps:'https://goo.gl/maps/oXTS1URVdpTttdep9', gc:'https://gentsclubs.com/gc/club-secret'},
-  {id:18, name:'Club Sin', area:'Soi Bonkot 8', initial:'C', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_9803f152e334432a8ed3199b0afd1615~mv2.jpg', maps:'https://goo.gl/maps/Aja9eFyB65Jw3zYB8', gc:'https://gentsclubs.com/gc/club-sin'},
-  {id:19, name:'Cobra Lounge', area:'Pratumnak', initial:'C', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_67a3dda096604d0ea879f8b95ffdffd3~mv2.jpg', maps:'https://goo.gl/maps/6WY2BBwPxDrRke4D7', gc:'https://gentsclubs.com/gc/cobra-lounge'},
-  {id:20, name:'Cosy Beach Club', area:'Pratumnak', initial:'C', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_e34a0d9f08cc4c30b2aa35d54365d4ec~mv2.jpg', maps:'https://goo.gl/maps/BrJtVWicHzmmSPhS6', gc:'https://gentsclubs.com/gc/cosy-beach-club'},
-  {id:21, name:'Dao Bar', area:'The Darkside', initial:'D', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_cfc1bb98cd53443cbff4ff97882c45ae~mv2.jpg', maps:'https://goo.gl/maps/sqJLMsy8Zc7NE3F98', gc:'https://gentsclubs.com/gc/dao-bar'},
-  {id:22, name:'Darkside Gentlemans Club', area:'The Darkside', initial:'D', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_fe66c948eb5549168f6f21df3aafbadf~mv2.jpg', maps:'https://goo.gl/maps/87TGpjFC9PJagktk8', gc:'https://gentsclubs.com/gc/darkside-gentlemans-club'},
-  {id:23, name:'Darksiders Genesis Bar', area:'The Darkside', initial:'D', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_4b831d7f60d249f48e5322c55bc07cfb~mv2.jpg', maps:'https://goo.gl/maps/zDbiUFcbkJPhkEb46', gc:'https://gentsclubs.com/gc/darksiders-genesis-bar'},
-  {id:24, name:'Excite Club', area:'Soi Excite', initial:'E', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_0717b447684d41888522dcfe83c15c2a~mv2.jpg', maps:'https://goo.gl/maps/P8ZZsirFprtB3Uk69', gc:'https://gentsclubs.com/gc/excite-club'},
-  {id:25, name:'Free Willy', area:'Soi Kophai', initial:'F', featured:true, logo:'https://static.wixstatic.com/media/a7bc28_aeb9d92babe0464a9b81d9cdd9beaf10~mv2.png', maps:'https://goo.gl/maps/gtFG8mxfZpXteEo59', gc:'https://gentsclubs.com/gc/freewilly'},
-  {id:26, name:'Heaven Above', area:'Soi Boomerang', initial:'H', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_d3de19fdf62f47fbb87f510b2405bd86~mv2.jpg', maps:'https://goo.gl/maps/tAcHVMciENSXMsJj7', gc:'https://gentsclubs.com/gc/heaven-above'},
-  {id:27, name:'High Rollers', area:'Soi Chaiyapoon', initial:'H', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_147d3350982945629c2d911099be4738~mv2.jpg', maps:'https://goo.gl/maps/nwTzkrtccpidXHE86', gc:'https://gentsclubs.com/gc/high-rollers'},
-  {id:28, name:'Hunny Lounge', area:'Soi Honey', initial:'H', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_7c6c0cf1a8aa45d384b705c4e09e4dde~mv2.jpg', maps:'https://goo.gl/maps/uvEDpW2oVHZe3VwVA', gc:'https://gentsclubs.com/gc/hunny-lounge'},
-  {id:29, name:'Jade House', area:'Jomtien', initial:'J', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_511f1c2e932a407d8c5ea90be06b9fb3~mv2.jpg', maps:'https://goo.gl/maps/srnaNAY9A6CHbDUi7', gc:'https://gentsclubs.com/gc/jade-house'},
-  {id:30, name:'Juicy Lucy', area:'Soi Bonkot 8', initial:'J', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_d3b8d72dc6d94cfa9aeba3cb4b4a9c4b~mv2.jpg', maps:'https://maps.app.goo.gl/nm8zTzc3QcNVAU6a6', gc:'https://gentsclubs.com/gc/juicy-lucy'},
-  {id:31, name:'Kings Club', area:'3rd Road', initial:'K', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_4e64da9ffc6346c5a4a81371a8373296~mv2.jpg', maps:'https://goo.gl/maps/7pr7s8NMLfvc47A46', gc:'https://gentsclubs.com/gc/kings-club'},
-  {id:32, name:'Kinnaree', area:'Pratumnak', initial:'K', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_eb864aa59eda4ca0b43a7ef3d6aaacb2~mv2.jpg', maps:'https://goo.gl/maps/Gn4tAGKeMEYH9NtU6', gc:'https://gentsclubs.com/gc/kinnaree'},
-  {id:33, name:'Kissx', area:'The Darkside', initial:'K', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_cadd324994434430822cd58e25d9431b~mv2.png', maps:'https://maps.app.goo.gl/Vx9sMdiChTtVAWov9', gc:'https://gentsclubs.com/gc/kissx'},
-  {id:34, name:'KitCat', area:'Jomtien', initial:'K', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_b234247985a44f09ab37d68a08700e77~mv2.png', maps:'https://goo.gl/maps/MTiLMsjrekVAy6VH9', gc:'https://gentsclubs.com/gc/kitcat'},
-  {id:35, name:'La Poste', area:'Soi Lengkee', initial:'L', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_ae44b5eb506a47599b0e50e64ac84339~mv2.jpg', maps:'https://goo.gl/maps/zwYrmUQVXyonMBaq5', gc:'https://gentsclubs.com/gc/la-poste'},
-  {id:36, name:'Legs Eleven', area:'Soi Honey', initial:'L', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_4dda25fa309c4d0a9f08c70169fee621~mv2.jpg', maps:'https://goo.gl/maps/Fo93NvmEjE9YfbxP8', gc:'https://gentsclubs.com/gc/legs-eleven'},
-  {id:37, name:'MClub', area:'3rd Road', initial:'M', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_7d89691fafa64431ba73d503fd7bf9f0~mv2.jpg', maps:'https://goo.gl/maps/CB27VcPDunbcvEgL6', gc:'https://gentsclubs.com/gc/mclub'},
-  {id:38, name:'Madams', area:'3rd Road', initial:'M', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_efcd755a6bfe4d298223c81379db6792~mv2.png', maps:'https://maps.app.goo.gl/Xt8Vu4K1ZVhbsFe76', gc:'https://gentsclubs.com/gc/madams'},
-  {id:39, name:'Maggie Mays', area:'Soi Chaiyapoon', initial:'M', featured:true, logo:'https://static.wixstatic.com/media/a7bc28_dc421c93e4a24a4d897a3c671eaa2a83~mv2.png', maps:'https://goo.gl/maps/eczsfsYtYn3E3eGM6', gc:'https://gentsclubs.com/gc/maggie-mays'},
-  {id:40, name:'Maggie Mays Darkside', area:'The Darkside', initial:'M', featured:true, logo:'https://static.wixstatic.com/media/5b8e36_7f68b38db1a64f5cb610a4572d834852~mv2.png', maps:'https://maps.app.goo.gl/3CgEqiXQEftd9Ued6', gc:'https://gentsclubs.com/gc/maggie-mays-darkside'},
-  {id:41, name:'Maggie Mays Jomtien', area:'Jomtien', initial:'M', featured:true, logo:'https://static.wixstatic.com/media/5b8e36_fb2c7a57977c46ad82307d6675b1aa94~mv2.jpg', maps:'https://maps.app.goo.gl/6UpwrHN3ALj5Diit7', gc:'https://gentsclubs.com/gc/maggie-mays-jomtien'},
-  {id:42, name:'Maggie Mays Resort', area:'Jomtien', initial:'M', featured:true, logo:'https://static.wixstatic.com/media/5b8e36_f4a50be4d088491f8abb12387363523c~mv2.jpg', maps:'https://maps.app.goo.gl/NLZfwsTgAq25pjZQA', gc:'https://gentsclubs.com/gc/maggie-mays-resort'},
-  {id:43, name:'Malibu Club', area:'Soi Bonkot 5', initial:'M', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_5b2d501a91784053bea2b95901641e36~mv2.jpg', maps:'https://goo.gl/maps/83bkXUsLDYgP7YsX8', gc:'https://gentsclubs.com/gc/malibu-club'},
-  {id:44, name:'Manuya', area:'Soi Bonkot 8', initial:'M', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_3d12b9f947b44ad493c173fc59ab1baa~mv2.png', maps:'https://goo.gl/maps/dE2aNHuDqe6Yb2xQ8', gc:'https://gentsclubs.com/gc/manuya'},
-  {id:45, name:'Mirror Club', area:'Naklua', initial:'M', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_f3605af7fc7c4394ab4aff9a028903b3~mv2.jpg', maps:'https://maps.app.goo.gl/i5rvY6XH8b3wRR8T9', gc:'https://gentsclubs.com/gc/mirror-club'},
-  {id:46, name:'Monkey House', area:'Jomtien', initial:'M', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_c9609d8af1fa4ac5b2752ec9d64720c3~mv2.jpg', maps:'https://maps.app.goo.gl/NLuM5vMw3rNbQLJ99', gc:'https://gentsclubs.com/gc/monkey-house'},
-  {id:47, name:'New Secret Bar', area:'The Darkside', initial:'N', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_c27ee62cc5e04a7c99c9c4c93d6c59d1~mv2.png', maps:'https://goo.gl/maps/7y7FDdQdXVFY8BRE6', gc:'https://gentsclubs.com/gc/new-secret-bar'},
-  {id:48, name:'Nirvana', area:'Jomtien', initial:'N', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_f08c9ced1d034aea90df132e5c19351d~mv2.png', maps:'https://goo.gl/maps/H9Du9aNroLmKttYs7', gc:'https://gentsclubs.com/gc/nirvana'},
-  {id:49, name:'Octopussy Club', area:'Soi Boomerang', initial:'O', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_c24555ab46b04b519a79b222b05351ee~mv2.jpg', maps:'https://goo.gl/maps/HjtkcKwtjbnW5xC89', gc:'https://gentsclubs.com/gc/octopussy-club'},
-  {id:50, name:'Olivia\'s Club', area:'Soi Excite', initial:'O', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_18f5d39fadc347e9b366f18c79f99316~mv2.jpg', maps:'https://goo.gl/maps/4Hfv6jD4vqHAWwjq7', gc:'https://gentsclubs.com/gc/olivias-club'},
-  {id:51, name:'Pacha Pattaya', area:'The Darkside', initial:'P', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_490f9f4b0a7841659d0083f3271e47ff~mv2.png', maps:'https://goo.gl/maps/sCDA4rxQUq4MUAu26', gc:'https://gentsclubs.com/gc/pacha-pattaya'},
-  {id:52, name:'Paradise Bar', area:'The Darkside', initial:'P', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_afab2db8b11b4d9e8bcf08a2d6da2ac2~mv2.jpg', maps:'https://maps.app.goo.gl/bsFDYFa7Ktc5TiNJA', gc:'https://gentsclubs.com/gc/paradise-bar'},
-  {id:53, name:'Passion', area:'Jomtien', initial:'P', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_4e52b12cb97a44498488baa31d11e323~mv2.jpg', maps:'https://goo.gl/maps/bTZFyxMRNfZmSvvy5', gc:'https://gentsclubs.com/gc/passion'},
-  {id:54, name:'Pinky\'s', area:'Soi Bonkot', initial:'P', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_c83b072153584594bead335ab7583a69~mv2.jpg', maps:'https://maps.app.goo.gl/uvhzMiSrvsB6Km7J7', gc:'https://gentsclubs.com/gc/pinkys'},
-  {id:55, name:'Pirates', area:'Soi Bonkot 8', initial:'P', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_30533b7a37d34dc683733aa16949e725~mv2.jpg', maps:'https://goo.gl/maps/yo9GRhxYdgHjJNwR6', gc:'https://gentsclubs.com/gc/pirates'},
-  {id:56, name:'Purple Club', area:'Soi Bonkot 8', initial:'P', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_626bf097fb28453885e48e377c2a2629~mv2.jpg', maps:'https://goo.gl/maps/QsUKLFxEd5ey8wRY9', gc:'https://gentsclubs.com/gc/purple-club'},
-  {id:57, name:'Pussy Galore', area:'Jomtien', initial:'P', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_045a934f49e2466a82e0b6a1f3f4b4c8~mv2.jpg', maps:'https://goo.gl/maps/yBxAjzEY74LNfm1k6', gc:'https://gentsclubs.com/gc/pussy-galore'},
-  {id:58, name:'Red Hot and Blue', area:'Soi Buakhao', initial:'R', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_8e13970b49d04392824c3529e61b6fef~mv2.jpeg', maps:'https://goo.gl/maps/hM6ez6vDyjeJXWr57', gc:'https://gentsclubs.com/gc/red-hot-and-blue'},
-  {id:59, name:'Red Lantern', area:'Soi Boomerang', initial:'R', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_9b01e964ba7a44ffba9109b46525b10d~mv2.jpg', maps:'https://maps.app.goo.gl/1btoFx2K7ik3fjV59', gc:'https://gentsclubs.com/gc/red-lantern'},
-  {id:60, name:'Secret Lounge', area:'Soi Excite', initial:'S', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_5e19d46b215941619b49adaa09c9a43b~mv2.png', maps:'https://goo.gl/maps/y6YtZ7RamaX7XtAn7', gc:'https://gentsclubs.com/gc/secret-lounge'},
-  {id:61, name:'Telephone Bar', area:'Soi Batman', initial:'T', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_8fd76887489c458db53f74e34526528a~mv2.jpg', maps:'https://goo.gl/maps/2N2K5m17C8bpP5dR8', gc:'https://gentsclubs.com/gc/telephone-bar'},
-  {id:62, name:'The Badger', area:'The Darkside', initial:'T', featured:true, logo:'https://static.wixstatic.com/media/5b8e36_df0114fc04a5462681bb3377fbf78ba0~mv2.jpg', maps:'https://maps.app.goo.gl/ySFQYkGXZnXAA4yo9', gc:'https://gentsclubs.com/gc/the-badger'},
-  {id:63, name:'The Bird Cage', area:'The Darkside', initial:'T', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_b56c1b91512a4ffd93b0d91a6d0838be~mv2.jpg', maps:'https://goo.gl/maps/YeMcVGGp4DnRdF5F7', gc:'https://gentsclubs.com/gc/the-bird-cage'},
-  {id:64, name:'The Brass House', area:'Jomtien', initial:'T', featured:true, logo:'https://static.wixstatic.com/media/a7bc28_1f8bb9f4c981494782e699e00dbf219d~mv2.png', maps:'https://maps.app.goo.gl/4iGFNUHk9zg3VMeR8', gc:'https://gentsclubs.com/gc/the-brass-house'},
-  {id:65, name:'The Camel Toe', area:'Soi Kophai', initial:'T', featured:true, logo:'https://static.wixstatic.com/media/a7bc28_5b763161eb1347d09d253af7b260f3a0~mv2.png', maps:'https://goo.gl/maps/yyTT1aGTrSivaqND9', gc:'https://gentsclubs.com/gc/the-camel-toe'},
-  {id:66, name:'The Cat House', area:'Soi Boomerang', initial:'T', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_a00920cf686549bd928a6b3342575b7a~mv2.jpg', maps:'https://maps.app.goo.gl/4qYVSv5PEEC2PTjn8', gc:'https://gentsclubs.com/gc/the-cat-house'},
-  {id:67, name:'The Den', area:'Soi Chaiyapoon', initial:'T', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_7b5eb7651bda4263b94f61db9756bcdb~mv2.png', maps:'https://goo.gl/maps/fJkhhykMtEgQVx8h8', gc:'https://gentsclubs.com/gc/the-den'},
-  {id:68, name:'The Factory', area:'Soi Bonkot 8', initial:'T', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_6f78c75e5e5e4bc1bbb2cdbb82c269e6~mv2.jpg', maps:'https://maps.app.goo.gl/M5XebwVzKTa2j1KY8', gc:'https://gentsclubs.com/gc/the-factory'},
-  {id:69, name:'The Naughty Club', area:'Soi Boomerang', initial:'T', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_0d52193cc7354e3b92a67e67fb9e7e33~mv2.jpg', maps:'https://goo.gl/maps/G5UU9Ky6TDaMuPoM9', gc:'https://gentsclubs.com/gc/the-naughty-club'},
-  {id:70, name:'The Pussy Cat Club', area:'The Darkside', initial:'T', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_554e18e98aae494dac19209a0056a2cf~mv2.png', maps:'https://goo.gl/maps/STttotVPfxf6ZWRD8', gc:'https://gentsclubs.com/gc/the-pussy-cat-club'},
-  {id:71, name:'Throbin Wood', area:'Jomtien', initial:'T', featured:true, logo:'https://static.wixstatic.com/media/5b8e36_1876c237f37e47fe8ab9ee32a2d9313c~mv2.png', maps:'https://maps.app.goo.gl/HPDatwJyyLh5LtgEA', gc:'https://gentsclubs.com/gc/throbin-wood'},
-  {id:72, name:'Tiger Club', area:'Soi Bonkot 8', initial:'T', featured:false, logo:'https://static.wixstatic.com/media/5b8e36_8865cbb36e854784b951886b10fef47e~mv2.jpg', maps:'https://maps.app.goo.gl/9nNkGMaGEHYK1gr9A', gc:'https://gentsclubs.com/gc/tiger-club'},
-  {id:73, name:'Venom', area:'Pratumnak', initial:'V', featured:false, logo:'https://static.wixstatic.com/media/a7bc28_6b5dfa8e51dc46c4ab96fec1adbf89e7~mv2.jpg', maps:'https://goo.gl/maps/6WY2BBwPxDrRke4D7', gc:'https://gentsclubs.com/gc/venom'}
-];
+let CLUBS = []; // Will be loaded from Firestore on page load
 
 const SCORES={S:100,A:80,B:60,C:40,D:20,F:0};
 
@@ -1502,9 +1429,44 @@ document.getElementById('authModal').addEventListener('click',function(e){ if(e.
 document.getElementById('clubModal').addEventListener('click',function(e){ if(e.target===this) closeClubModal(); });
 
 // ── INIT ──
-renderGrid();
-updateTimer();
-renderLb();
+async function initApp() {
+  console.log('Initializing app...');
+  
+  // Load clubs from Firestore
+  try {
+    const clubsSnap = await getDocs(collection(db, 'clubs'));
+    CLUBS = [];
+    clubsSnap.forEach(doc => {
+      const data = doc.data();
+      // Map Firestore field names to match existing code structure
+      CLUBS.push({
+        id: data.id,
+        name: data.name,
+        area: data.area,
+        initial: data.initial,
+        featured: data.featured,
+        logo: data.logoUrl,      // Firestore uses logoUrl
+        maps: data.mapsUrl,      // Firestore uses mapsUrl
+        gc: data.gcUrl           // Firestore uses gcUrl
+      });
+    });
+    // Sort by ID to maintain consistent order
+    CLUBS.sort((a, b) => a.id - b.id);
+    console.log(`✓ Loaded ${CLUBS.length} clubs from Firestore`);
+  } catch (err) {
+    console.error('✗ Failed to load clubs:', err);
+    alert('Failed to load club data. Please refresh the page.');
+    return; // Don't proceed if clubs didn't load
+  }
+  
+  // Now that clubs are loaded, render the interface
+  renderGrid();
+  updateTimer();
+  renderLb();
+}
+
+// Start the app
+initApp();
 </script>
 <!-- Exit warning modal -->
 <div class="modal-overlay" id="exitModal">
