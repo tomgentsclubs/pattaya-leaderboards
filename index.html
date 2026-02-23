@@ -422,6 +422,37 @@
     t.classList.add('show');
     setTimeout(() => t.classList.remove('show'), 2000);
   }
+
+  // ─────────────────────────────────────────────
+  // LOAD CLUBS FROM FIRESTORE
+  // ─────────────────────────────────────────────
+  async function loadClubsFromFirestore() {
+    try {
+      const clubsSnap = await getDocs(collection(db, 'clubs'));
+      const clubs = [];
+      clubsSnap.forEach(doc => {
+        const data = doc.data();
+        clubs.push({
+          id: data.id,
+          name: data.name,
+          area: data.area,
+          initial: data.initial,
+          featured: data.featured,
+          logo: data.logoUrl,
+          maps: data.mapsUrl,
+          gc: data.gcUrl
+        });
+      });
+      clubs.sort((a, b) => a.id - b.id);
+      return clubs;
+    } catch (err) {
+      console.error('Failed to load clubs:', err);
+      throw err;
+    }
+  }
+
+  // Expose to global scope
+  window.loadClubsFromFirestore = loadClubsFromFirestore;
 </script>
 <style>
   :root {
@@ -1434,32 +1465,14 @@ async function initApp() {
   
   // Load clubs from Firestore
   try {
-    const clubsSnap = await getDocs(collection(db, 'clubs'));
-    CLUBS = [];
-    clubsSnap.forEach(doc => {
-      const data = doc.data();
-      // Map Firestore field names to match existing code structure
-      CLUBS.push({
-        id: data.id,
-        name: data.name,
-        area: data.area,
-        initial: data.initial,
-        featured: data.featured,
-        logo: data.logoUrl,      // Firestore uses logoUrl
-        maps: data.mapsUrl,      // Firestore uses mapsUrl
-        gc: data.gcUrl           // Firestore uses gcUrl
-      });
-    });
-    // Sort by ID to maintain consistent order
-    CLUBS.sort((a, b) => a.id - b.id);
+    CLUBS = await window.loadClubsFromFirestore();
     console.log(`✓ Loaded ${CLUBS.length} clubs from Firestore`);
   } catch (err) {
     console.error('✗ Failed to load clubs:', err);
     alert('Failed to load club data. Please refresh the page.');
-    return; // Don't proceed if clubs didn't load
+    return;
   }
   
-  // Now that clubs are loaded, render the interface
   renderGrid();
   updateTimer();
   renderLb();
