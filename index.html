@@ -42,7 +42,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendEmailVerification, updateProfile, updateEmail, updatePassword, reauthenticateWithCredential, EmailAuthProvider, sendPasswordResetEmail, verifyBeforeUpdateEmail } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-  import { getFirestore, doc, setDoc, getDoc, collection, query, where, getDocs, serverTimestamp, Timestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { getFirestore, doc, setDoc, getDoc, collection, query, where, getDocs, serverTimestamp, Timestamp, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
   // ─────────────────────────────────────────────
   // FIREBASE CONFIG — Replace with your own config
@@ -73,18 +73,24 @@
           uid: firebaseUser.uid,
           email: firebaseUser.email,
           username: firebaseUser.displayName || firebaseUser.email.split('@')[0],
-          verified: false
+          verified: false,
+          isAdmin: false
         };
         updateHeader();
         renderGrid();
         showVerifyBanner();
       } else {
+        // Load user data from Firestore to check admin status
+        const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+        const userData = userDoc.exists() ? userDoc.data() : {};
+        
         // Fully authenticated and verified
         state.user = {
           uid: firebaseUser.uid,
           email: firebaseUser.email,
           username: firebaseUser.displayName || firebaseUser.email.split('@')[0],
-          verified: true
+          verified: true,
+          isAdmin: userData.isAdmin || false
         };
         hideVerifyBanner();
         // Load this user's weekly submission status from Firestore
@@ -453,6 +459,41 @@
 
   // Expose to global scope
   window.loadClubsFromFirestore = loadClubsFromFirestore;
+
+  // ─────────────────────────────────────────────
+  // ADMIN: ADD/UPDATE/DELETE CLUBS
+  // ─────────────────────────────────────────────
+  window.firebaseAddClub = async function(clubId, clubData) {
+    await setDoc(doc(db, 'clubs', clubId.toString()), {
+      id: clubId,
+      name: clubData.name,
+      area: clubData.area,
+      initial: clubData.initial,
+      featured: clubData.featured,
+      logoUrl: clubData.logoUrl,
+      mapsUrl: clubData.mapsUrl,
+      gcUrl: clubData.gcUrl,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  };
+
+  window.firebaseUpdateClub = async function(clubId, clubData) {
+    await setDoc(doc(db, 'clubs', clubId.toString()), {
+      name: clubData.name,
+      area: clubData.area,
+      initial: clubData.initial,
+      featured: clubData.featured,
+      logoUrl: clubData.logoUrl,
+      mapsUrl: clubData.mapsUrl,
+      gcUrl: clubData.gcUrl,
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+  };
+
+  window.firebaseDeleteClub = async function(clubId) {
+    await deleteDoc(doc(db, 'clubs', clubId.toString()));
+  };
   
   // Initialize app once Firebase module is loaded
   if (document.readyState === 'loading') {
@@ -722,6 +763,23 @@
 
   /* LOADING STATE ON BUTTONS */
   .btn-auth-submit:disabled { opacity:0.55; cursor:not-allowed; }
+
+  /* ADMIN PANEL */
+  .admin-club-list { display:flex; flex-direction:column; gap:10px; }
+  .admin-club-item { background:var(--card-bg); border:1px solid var(--border); border-radius:6px; padding:16px; display:flex; align-items:center; gap:14px; }
+  .admin-club-logo { width:40px; height:40px; background:var(--border); border-radius:4px; display:flex; align-items:center; justify-content:center; font-family:'Bebas Neue',sans-serif; font-size:1rem; color:var(--grey); flex-shrink:0; overflow:hidden; }
+  .admin-club-logo img { width:100%; height:100%; object-fit:contain; padding:3px; }
+  .admin-club-info { flex:1; min-width:0; }
+  .admin-club-name { font-family:'Barlow Condensed',sans-serif; font-size:1rem; font-weight:700; letter-spacing:0.5px; margin-bottom:2px; }
+  .admin-club-meta { font-size:0.75rem; color:var(--grey); }
+  .admin-club-actions { display:flex; gap:8px; flex-shrink:0; }
+  .btn-admin { padding:8px 14px; font-family:'Barlow Condensed',sans-serif; font-size:0.75rem; font-weight:600; letter-spacing:0.5px; text-transform:uppercase; border-radius:3px; cursor:pointer; transition:all 0.2s; border:1px solid; }
+  .btn-admin-edit { background:transparent; border-color:var(--border); color:var(--grey); }
+  .btn-admin-edit:hover { border-color:var(--gold); color:var(--gold); }
+  .btn-admin-delete { background:transparent; border-color:rgba(224,85,85,0.3); color:#e05555; }
+  .btn-admin-delete:hover { background:rgba(224,85,85,0.1); border-color:#e05555; }
+  .admin-error { background:rgba(224,85,85,0.12); border:1px solid rgba(224,85,85,0.3); border-radius:4px; padding:10px 13px; font-size:0.82rem; color:#FF8C94; margin-bottom:14px; }
+  .admin-badge { display:inline-block; padding:3px 8px; background:rgba(201,168,76,0.15); border:1px solid rgba(201,168,76,0.3); border-radius:3px; font-size:0.7rem; font-weight:700; color:var(--gold); margin-left:8px; }
 </style>
 </head>
 <body>
@@ -808,6 +866,7 @@
   <button class="nav-tab active" id="tab-rate" onclick="showScreen('rate',this)">Rate Clubs</button>
   <button class="nav-tab" id="tab-lb" onclick="showScreen('leaderboard',this)">Leaderboards</button>
   <button class="nav-tab" id="tab-how" onclick="showScreen('how',this)">How It Works</button>
+  <button class="nav-tab" id="tab-admin" onclick="showScreen('admin',this)" style="display:none">Admin</button>
 </nav>
 
 <!-- ═══ RATE SCREEN ═══ -->
@@ -926,6 +985,69 @@
   </div>
 </div>
 
+<!-- ═══ ADMIN SCREEN ═══ -->
+<div class="screen" id="screen-admin">
+  <div class="page-wrap">
+    <div class="page-heading">Admin Panel</div>
+    <div class="page-sub">Manage clubs, add new venues, edit details</div>
+    
+    <button class="btn-primary" style="margin-bottom:20px" onclick="openAddClubModal()">+ Add New Club</button>
+    
+    <div id="adminClubList" class="admin-club-list">
+      <!-- Populated by renderAdminClubList() -->
+    </div>
+  </div>
+</div>
+
+<!-- ═══ ADMIN CLUB EDIT MODAL ═══ -->
+<div class="modal-overlay" id="adminModal">
+  <div class="modal" style="max-width:500px">
+    <button class="modal-close" onclick="closeAdminModal()">×</button>
+    <div class="modal-title" id="adminModalTitle">Edit Club</div>
+    <div class="admin-error" id="adminError" style="display:none"></div>
+    
+    <div class="form-group">
+      <label class="form-label">Club Name</label>
+      <input type="text" class="form-input" id="adminName" placeholder="Club Name">
+    </div>
+    
+    <div class="form-group">
+      <label class="form-label">Area / Location</label>
+      <input type="text" class="form-input" id="adminArea" placeholder="e.g. Soi Chaiyapoon">
+    </div>
+    
+    <div class="form-group">
+      <label class="form-label">Initial Letter</label>
+      <input type="text" class="form-input" id="adminInitial" placeholder="e.g. M" maxlength="1">
+    </div>
+    
+    <div class="form-group">
+      <label class="form-label">Logo URL</label>
+      <input type="text" class="form-input" id="adminLogo" placeholder="https://...">
+    </div>
+    
+    <div class="form-group">
+      <label class="form-label">Maps URL</label>
+      <input type="text" class="form-input" id="adminMaps" placeholder="https://goo.gl/maps/...">
+    </div>
+    
+    <div class="form-group">
+      <label class="form-label">GentsClubs.com URL</label>
+      <input type="text" class="form-input" id="adminGc" placeholder="https://gentsclubs.com/gc/...">
+    </div>
+    
+    <div class="form-group" style="display:flex;align-items:center;gap:10px">
+      <input type="checkbox" id="adminFeatured" style="width:auto;margin:0">
+      <label style="margin:0;cursor:pointer" for="adminFeatured">Featured Club</label>
+    </div>
+    
+    <div class="modal-actions" style="margin-top:20px">
+      <button class="btn-block btn-outline" onclick="closeAdminModal()">Cancel</button>
+      <button class="btn-block btn-primary" onclick="saveClub()">Save Club</button>
+    </div>
+  </div>
+</div>
+
 <script>
 
 const CRITERIA=[
@@ -970,6 +1092,7 @@ function showScreen(id,tab){
   tab.classList.add('active');
   if(id==='leaderboard') renderLb();
   if(id==='rate') goHome();
+  if(id==='admin') renderAdminClubList();
 }
 
 // ── CRITERIA HOME ──
@@ -1370,10 +1493,14 @@ function updateHeader(){
          <span style="font-size:0.65rem;opacity:0.5">▾</span>
        </button>
        <button class="btn-login" onclick="logout()">Sign Out</button>`;
+    
+    // Show/hide admin tab based on isAdmin status
+    document.getElementById('tab-admin').style.display = state.user.isAdmin ? 'block' : 'none';
   } else {
     document.getElementById('headerRight').innerHTML=
       `<button class="btn-login" onclick="openModal('login')">Sign In</button>
        <button class="btn-primary" onclick="openModal('register')">Register</button>`;
+    document.getElementById('tab-admin').style.display = 'none';
   }
 }
 
@@ -1470,6 +1597,146 @@ async function deleteAccount(){
 
 document.getElementById('authModal').addEventListener('click',function(e){ if(e.target===this) closeModal(); });
 document.getElementById('clubModal').addEventListener('click',function(e){ if(e.target===this) closeClubModal(); });
+document.getElementById('adminModal').addEventListener('click',function(e){ if(e.target===this) closeAdminModal(); });
+
+// ── ADMIN PANEL ──
+let editingClubId = null;
+
+async function renderAdminClubList() {
+  const list = document.getElementById('adminClubList');
+  if (!CLUBS.length) {
+    list.innerHTML = '<div style="text-align:center;padding:40px;color:var(--grey)">Loading clubs...</div>';
+    return;
+  }
+  
+  list.innerHTML = CLUBS.map(club => {
+    const logoHtml = club.logo
+      ? `<img src="${club.logo}" alt="${club.name}" onerror="this.parentNode.textContent='${club.initial}'">`
+      : club.initial;
+    const featuredBadge = club.featured ? '<span class="admin-badge">FEATURED</span>' : '';
+    
+    return `<div class="admin-club-item">
+      <div class="admin-club-logo">${logoHtml}</div>
+      <div class="admin-club-info">
+        <div class="admin-club-name">${club.name}${featuredBadge}</div>
+        <div class="admin-club-meta">ID: ${club.id} · ${club.area}</div>
+      </div>
+      <div class="admin-club-actions">
+        <button class="btn-admin btn-admin-edit" onclick="editClub(${club.id})">Edit</button>
+        <button class="btn-admin btn-admin-delete" onclick="deleteClub(${club.id}, '${club.name.replace(/'/g, "\\'")}')">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function openAddClubModal() {
+  editingClubId = null;
+  document.getElementById('adminModalTitle').textContent = 'Add New Club';
+  document.getElementById('adminName').value = '';
+  document.getElementById('adminArea').value = '';
+  document.getElementById('adminInitial').value = '';
+  document.getElementById('adminLogo').value = '';
+  document.getElementById('adminMaps').value = '';
+  document.getElementById('adminGc').value = '';
+  document.getElementById('adminFeatured').checked = false;
+  document.getElementById('adminError').style.display = 'none';
+  document.getElementById('adminModal').classList.add('show');
+}
+
+function editClub(clubId) {
+  const club = CLUBS.find(c => c.id === clubId);
+  if (!club) return;
+  
+  editingClubId = clubId;
+  document.getElementById('adminModalTitle').textContent = 'Edit Club';
+  document.getElementById('adminName').value = club.name;
+  document.getElementById('adminArea').value = club.area;
+  document.getElementById('adminInitial').value = club.initial;
+  document.getElementById('adminLogo').value = club.logo || '';
+  document.getElementById('adminMaps').value = club.maps;
+  document.getElementById('adminGc').value = club.gc;
+  document.getElementById('adminFeatured').checked = club.featured;
+  document.getElementById('adminError').style.display = 'none';
+  document.getElementById('adminModal').classList.add('show');
+}
+
+function closeAdminModal() {
+  document.getElementById('adminModal').classList.remove('show');
+  editingClubId = null;
+}
+
+async function saveClub() {
+  const name = document.getElementById('adminName').value.trim();
+  const area = document.getElementById('adminArea').value.trim();
+  const initial = document.getElementById('adminInitial').value.trim().toUpperCase();
+  const logo = document.getElementById('adminLogo').value.trim();
+  const maps = document.getElementById('adminMaps').value.trim();
+  const gc = document.getElementById('adminGc').value.trim();
+  const featured = document.getElementById('adminFeatured').checked;
+  
+  // Validation
+  if (!name || !area || !initial || !maps || !gc) {
+    showAdminError('Please fill in all required fields (name, area, initial, maps, info URL)');
+    return;
+  }
+  
+  if (initial.length !== 1) {
+    showAdminError('Initial must be exactly 1 character');
+    return;
+  }
+  
+  try {
+    if (editingClubId) {
+      // Update existing club
+      await window.firebaseUpdateClub(editingClubId, {
+        name, area, initial, logoUrl: logo, mapsUrl: maps, gcUrl: gc, featured
+      });
+      showToastMsg('Club updated!');
+    } else {
+      // Add new club
+      const newId = CLUBS.length > 0 ? Math.max(...CLUBS.map(c => c.id)) + 1 : 1;
+      await window.firebaseAddClub(newId, {
+        name, area, initial, logoUrl: logo, mapsUrl: maps, gcUrl: gc, featured
+      });
+      showToastMsg('Club added!');
+    }
+    
+    // Reload clubs and refresh UI
+    CLUBS = await window.loadClubsFromFirestore();
+    renderAdminClubList();
+    closeAdminModal();
+  } catch (err) {
+    console.error('Save failed:', err);
+    showAdminError('Failed to save: ' + err.message);
+  }
+}
+
+async function deleteClub(clubId, clubName) {
+  if (!confirm(`Are you sure you want to delete "${clubName}"? This cannot be undone.`)) return;
+  
+  try {
+    await window.firebaseDeleteClub(clubId);
+    showToastMsg('Club deleted');
+    CLUBS = await window.loadClubsFromFirestore();
+    renderAdminClubList();
+  } catch (err) {
+    console.error('Delete failed:', err);
+    alert('Failed to delete club: ' + err.message);
+  }
+}
+
+function showAdminError(msg) {
+  const el = document.getElementById('adminError');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+function showToastMsg(msg){
+  const t=document.getElementById('feedbackToast');
+  t.textContent=msg; t.style.color='var(--white)';
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2000);
+}
 
 // ── INIT ──
 window.initApp = async function() {
