@@ -1,5 +1,6 @@
 
 
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -312,11 +313,18 @@
         state.user.verified = true;
         hideVerifyBanner();
         await loadWeeklyStatus();
+        
+        // Ensure clubs are loaded before rendering grid
+        if (CLUBS.length === 0) {
+          CLUBS = await window.loadClubsFromFirestore();
+        }
+        
         updateHeader();
         renderGrid();
         showToastMsg('Email verified! You can now rate the Gents Clubs.');
       } else {
         showToastMsg("Email not verified yet — check your inbox.");
+      }
       }
     }
   };
